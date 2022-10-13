@@ -142,7 +142,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'customers.Customer'
 
-
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -152,9 +151,8 @@ REST_FRAMEWORK = {
 
 SWAGGER_SETTINGS = {
     'LOGIN_URL': '/api-auth/login/',
-    'LOGOUT_URL': '/api-auth/logout/'
+    'LOGOUT_URL': '/api-auth/logout/',
 }
-
 
 # SimpleJWT settings
 from datetime import timedelta

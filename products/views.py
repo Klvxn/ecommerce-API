@@ -1,11 +1,13 @@
 from django.db.models import Q
 
-from drf_yasg.utils import swagger_auto_schema
 from rest_framework import exceptions, status
 from rest_framework.authentication import BasicAuthentication
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticatedOrReadOnly
 from rest_framework.views import APIView
 from rest_framework.response import Response
+
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 from cart.cart import Cart
 
@@ -25,6 +27,8 @@ class ProductsList(APIView):
             permission_classes = [IsAdminUser]
         return [permission() for permission in permission_classes]
 
+    search_query = openapi.Parameter('search', in_=openapi.IN_QUERY, type=openapi.TYPE_STRING)
+    @swagger_auto_schema(manual_parameters=[search_query])
     def get(self, request, slug=None, *args, **kwargs):
         available_products = Product.objects.filter(available=True)
         if request.query_params:
@@ -42,6 +46,7 @@ class ProductsList(APIView):
         serializer = ProductSerializer(available_products, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(operation_summary="Create a product instance", request_body=ProductSerializer)
     def post(self, request, *args, **kwargs):
         serializer = ProductSerializer(data=request.data)
         if serializer.is_valid(raise_exception=True):
@@ -72,7 +77,7 @@ class ProductInstance(APIView):
         serializer = ProductSerializer(product)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @swagger_auto_schema(operation_description="Add a product to cart")
+    @swagger_auto_schema(operation_summary="Add a product to cart")
     def post(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
         user_cart = Cart(request)

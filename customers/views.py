@@ -3,6 +3,8 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 
+from drf_yasg.utils import swagger_auto_schema
+
 from .models import Customer
 from .permissions import CustomerOnly
 from .serializers import CustomerSerializer, CustomerUpdateSerializer
@@ -23,6 +25,7 @@ class CustomerCreate(APIView):
         serializer = CustomerSerializer(customers, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(request_body=CustomerSerializer)
     def post(self, request, *args, **kwargs):
         serializer = CustomerSerializer(data=request.data)
         if serializer.is_valid(raise_exception=True):
@@ -53,6 +56,7 @@ class CustomerInstance(APIView):
         serializer = CustomerSerializer(customer)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(request_body=CustomerUpdateSerializer)
     def put(self, request, pk, *args, **kwargs):
         customer = self.get_object(pk=pk)
         serializer = CustomerUpdateSerializer(customer, data=request.data)

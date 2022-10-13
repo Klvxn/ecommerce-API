@@ -70,7 +70,7 @@ class Payment(APIView):
             Order.objects.filter(id=order.id).update(status='paid')
             for i in order.order_items.all():
                 Product.objects.filter(id=i.product_id).update(stock=i.product.stock-i.quantity)
-            return Response({"success": "Payment was successful"})
+            return Response({"success": "Payment was successful"}, status=status.HTTP_200_OK)
         return Response(
             {"error": f"{result.message}: {result.transaction.processor_response_code}"}, 
             status=status.HTTP_400_BAD_REQUEST

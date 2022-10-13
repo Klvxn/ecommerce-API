@@ -3,8 +3,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
+
 from cart.cart import Cart
 from customers.models import Address
+from customers.serializers import AddressSerializer
 from products.models import Product
 
 from .models import Order, OrderItem
@@ -16,6 +20,8 @@ class OrdersList(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    order_status = openapi.Parameter("status", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING)
+    @swagger_auto_schema(manual_parameters=[order_status])
     def get(self, request, *args, **kwargs):
         customer = request.user
         if request.query_params:
@@ -28,17 +34,24 @@ class OrdersList(APIView):
         serializer = OrderSerializer(orders, many=True, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(
+        operation_summary="Creates an order from cart items.",
+        request_body=AddressSerializer,
+        responses={201: OrderSerializer},
+    )
     def post(self, request, *args, **kwargs):
-        user_cart = Cart(request)
+        data = request.data
         order = Order.objects.create(
             customer=request.user,
             address=Address.objects.create(
-                street_address="195 ifite road",
-                zip_code=123412,
-                city="Awka",
-                state="Anambra",
+                street_address=data["street_address"],
+                postal_code=data["postal_code"],
+                city=data["city"],
+                state=data["state"],
+                country=data["country"],
             ),
         )
+        user_cart = Cart(request)
         for item in user_cart:
             product = Product.objects.get(name=item["product"])
             OrderItem.objects.create(
@@ -73,6 +86,5 @@ class OrderInstance(APIView):
         order = self.get_object(request, pk=pk)
         order.delete()
         return Response(
-            {"message": f"Order has been deleted"},
-            status=status.HTTP_204_NO_CONTENT,
+            {"message": f"Order has been deleted"}, status=status.HTTP_204_NO_CONTENT
         )
