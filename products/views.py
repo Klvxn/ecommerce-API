@@ -1,11 +1,11 @@
 from django.db.models import Q
 
+from drf_yasg.utils import swagger_auto_schema
 from rest_framework import exceptions, status
 from rest_framework.authentication import BasicAuthentication
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticatedOrReadOnly
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.reverse import reverse
 
 from cart.cart import Cart
 
@@ -14,18 +14,6 @@ from .serializers import ProductSerializer
 
 
 # Create your views here.
-class APIRoot(APIView):
-
-    def get(self, request, *args, **kwargs):
-        return Response(
-            {
-                'Products': reverse('products', request=request, format=None),
-                'Orders': reverse('orders', request=request, format=None),
-                'Customers': reverse('customers', request=request, format=None)
-            }
-        )
-
-
 class ProductsList(APIView):
 
     permission_classes = [AllowAny]
@@ -84,6 +72,7 @@ class ProductInstance(APIView):
         serializer = ProductSerializer(product)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(operation_description="Add a product to cart")
     def post(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
         user_cart = Cart(request)

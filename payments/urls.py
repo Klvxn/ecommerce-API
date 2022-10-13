@@ -4,5 +4,5 @@ from .views import Payment
 
 
 urlpatterns = [
-    path("i/orders/<uuid:pk>/checkout/", Payment.as_view(), name='payment'),
+    path("order/<uuid:pk>/make-payment/", Payment.as_view(), name='payment'),
 ]

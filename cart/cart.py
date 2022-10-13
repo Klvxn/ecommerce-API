@@ -5,8 +5,8 @@ from products.models import Product
 
 class Cart:
     """
-    Shopping cart for each visitor to the site. Using Django sessions to store user cart.
-    Users will be able to add, update and delete items from the cart.
+    Using Django sessions to store cart and items in the cart
+    Users will be able to add, update and delete those items.
     """
 
     def __init__(self, request):

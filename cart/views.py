@@ -8,15 +8,12 @@ from rest_framework.views import APIView
 from orders.models import Order, OrderItem
 from products.models import Product
 
-from customers.models import Address
 from .cart import Cart
 
 
 # Create your views here.
 class CartView(APIView):
-    """
-    View/update cart items, create an order, or delete cart.
-    """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
@@ -39,15 +36,7 @@ class CartView(APIView):
         data = request.data
         action = data.get('save_for_later', False)
         if action:
-            order = Order.objects.create(
-                customer=request.user,
-                address=Address.objects.create(
-                    street_address='195 ifite road',
-                    zip_code=123412,
-                    city='Awka',
-                    state='Anambra'
-                )
-            )
+            order = Order.objects.create(customer=request.user)
             user_cart = Cart(request)
             for item in user_cart:
                 product = Product.objects.get(name=item['product'])

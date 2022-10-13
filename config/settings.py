@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 import os
 from pathlib import Path
 
+from django.urls import resolve, reverse, reverse_lazy
 from dotenv import load_dotenv
 
 
@@ -53,6 +54,7 @@ INSTALLED_APPS = [
 
     # Third party apps
     'rest_framework',
+    'drf_yasg',
 ]
 
 MIDDLEWARE = [
@@ -144,7 +146,13 @@ AUTH_USER_MODEL = 'customers.Customer'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
     )
+}
+
+SWAGGER_SETTINGS = {
+    'LOGIN_URL': '/api-auth/login/',
+    'LOGOUT_URL': '/api-auth/logout/'
 }
 
 
