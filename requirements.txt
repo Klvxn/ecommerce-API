@@ -1,8 +1,9 @@
 asgiref==3.5.2
 braintree==4.17.0
 Django==4.1.2
-djangorestframework==3.13.0
 django-autoslug==1.9.8
+django-debug-toolbar==3.7.0
+djangorestframework==3.13.0
 djangorestframework-simplejwt==5.2.1
 drf-writable-nested==0.7.0
 drf-yasg==1.21.4

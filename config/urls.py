@@ -67,4 +67,8 @@ swagger_urls = [
 
 urls += swagger_urls
 
-urlpatterns = [path("admin/", admin.site.urls), path("api/v1/", include(urls))]
+urlpatterns = [
+    path("__debug__/", include("debug_toolbar.urls")),
+    path("admin/", admin.site.urls),
+    path("api/v1/", include(urls))
+]
