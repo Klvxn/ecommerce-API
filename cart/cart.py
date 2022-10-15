@@ -6,7 +6,7 @@ from products.models import Product
 class Cart:
     """
     Using Django sessions to store cart and items in the cart
-    Users will be able to add, update and delete those items.
+    Users will be able to add, update and remove those items.
     """
 
     def __init__(self, request):
@@ -43,9 +43,8 @@ class Cart:
 
     def update_item(self, product, quantity):
         product_id = str(product.id)
-        if product_id in self.cart:
-            self.cart[product_id]["quantity"] = quantity
-            return self.save()
+        self.cart[product_id]["quantity"] = quantity
+        return self.save()
 
     def save(self):
         self.session.modified = True

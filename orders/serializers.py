@@ -1,6 +1,7 @@
 from drf_writable_nested.serializers import WritableNestedModelSerializer
 from rest_framework import serializers
 
+from customers.models import Address
 from customers.serializers import AddressSerializer
 from products.serializers import ProductSerializer
 
@@ -19,7 +20,7 @@ class OrderItemSerializer(WritableNestedModelSerializer):
 
 class OrderSerializer(WritableNestedModelSerializer):
 
-    address = AddressSerializer(required=False)
+    address = AddressSerializer(allow_null=True)
     customer = serializers.StringRelatedField()
     order_items = OrderItemSerializer(many=True, required=False)
     url = serializers.HyperlinkedIdentityField(view_name="order-detail")
@@ -37,6 +38,12 @@ class OrderSerializer(WritableNestedModelSerializer):
             "total_cost",
             "status",
         ]
+    
+    def update(self, instance, validated_data):
+        data = validated_data.get("address", instance.address)
+        address, created = Address.objects.get_or_create(**data)
+        instance.address = address
+        return instance
 
 
 class SimpleOrderItemSerializer(serializers.ModelSerializer):

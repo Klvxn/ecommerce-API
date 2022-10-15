@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.db import models
+from django.urls import reverse
 
 from customers.models import Address
 from products.models import Product

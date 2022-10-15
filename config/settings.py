@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 import os
 from pathlib import Path
 
-from django.urls import resolve, reverse, reverse_lazy
 from dotenv import load_dotenv
 
 
@@ -142,17 +141,24 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'customers.Customer'
 
+
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.BasicAuthentication',
-    )
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated'
+    ],
 }
 
+
+# Swagger Docs settings
 SWAGGER_SETTINGS = {
-    'LOGIN_URL': '/api-auth/login/',
-    'LOGOUT_URL': '/api-auth/logout/',
+    'LOGIN_URL': '/api/v1/api-auth/login/',
+    'LOGOUT_URL': '/api/v1/api-auth/logout/',
 }
+
 
 # SimpleJWT settings
 from datetime import timedelta

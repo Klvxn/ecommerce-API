@@ -1,8 +1,7 @@
 from django.db.models import Q
 
 from rest_framework import exceptions, status
-from rest_framework.authentication import BasicAuthentication
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -20,15 +19,14 @@ class ProductsList(APIView):
 
     permission_classes = [AllowAny]
 
-    def get_permissions(self):
-        if self.request.method == "GET":
-            permission_classes = [AllowAny]
-        else:
-            permission_classes = [IsAdminUser]
-        return [permission() for permission in permission_classes]
-
-    search_query = openapi.Parameter('search', in_=openapi.IN_QUERY, type=openapi.TYPE_STRING)
-    @swagger_auto_schema(manual_parameters=[search_query])
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                name="search", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING
+            )
+        ],
+        responses={200: ProductSerializer(many=True)},
+    )
     def get(self, request, slug=None, *args, **kwargs):
         available_products = Product.objects.filter(available=True)
         if request.query_params:
@@ -46,38 +44,34 @@ class ProductsList(APIView):
         serializer = ProductSerializer(available_products, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @swagger_auto_schema(operation_summary="Create a product instance", request_body=ProductSerializer)
-    def post(self, request, *args, **kwargs):
-        serializer = ProductSerializer(data=request.data)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class ProductInstance(APIView):
 
-    authentication_classes = [BasicAuthentication]
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [AllowAny]
 
     def get_object(self, pk):
         try:
             return Product.objects.get(available=True, pk=pk)
         except Product.DoesNotExist:
-            raise exceptions.NotFound({"error": "Product doesn't exist."})
-
-    def get_permissions(self):
-        if self.request.method in ["PUT", "PATCH"]:
-            permission_classes = [IsAdminUser]
-            return [permission() for permission in permission_classes]
-        return super().get_permissions()
+            raise exceptions.NotFound({"error": "Product not found."})
 
     def get(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
         serializer = ProductSerializer(product)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @swagger_auto_schema(operation_summary="Add a product to cart")
+    @swagger_auto_schema(
+        operation_summary="Adds a product to cart",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            default=1,
+            properties={
+                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
+            },
+            example={"quantity": 12}
+        ),
+        
+    )
     def post(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
         user_cart = Cart(request)
@@ -88,14 +82,7 @@ class ProductInstance(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-    def put(self, request, pk, *args, **kwargs):
-        product = self.get_object(pk=pk)
-        serializer = ProductSerializer(product, data=request.data)
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+    @swagger_auto_schema(operation_summary="Deletes a product from cart")
     def delete(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
         user_cart = Cart(request)

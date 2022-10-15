@@ -32,6 +32,9 @@ class CustomerSerializer(serializers.ModelSerializer):
             "password",
             "password2",
         ]
+        extra_kwargs = {
+            "first_name": {"required": True}, "last_name": {"required": True}
+        }
 
     def validate(self, attrs):
         pwd = attrs["password"]

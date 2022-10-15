@@ -20,8 +20,13 @@ class OrdersList(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    order_status = openapi.Parameter("status", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING)
-    @swagger_auto_schema(manual_parameters=[order_status])
+    @swagger_auto_schema(
+        manual_parameters=[openapi.Parameter(
+            "status",
+            in_=openapi.IN_QUERY,
+            type=openapi.TYPE_STRING
+        )]
+    )
     def get(self, request, *args, **kwargs):
         customer = request.user
         if request.query_params:
@@ -41,15 +46,16 @@ class OrdersList(APIView):
     )
     def post(self, request, *args, **kwargs):
         data = request.data
+        user_address = Address.objects.create(
+            street_address=data["street_address"],
+            postal_code=data["postal_code"],
+            city=data["city"],
+            state=data["state"],
+            country=data["country"],
+        )
         order = Order.objects.create(
             customer=request.user,
-            address=Address.objects.create(
-                street_address=data["street_address"],
-                postal_code=data["postal_code"],
-                city=data["city"],
-                state=data["state"],
-                country=data["country"],
-            ),
+            address=user_address
         )
         user_cart = Cart(request)
         for item in user_cart:
@@ -61,7 +67,7 @@ class OrdersList(APIView):
                 cost_per_item=item.get("price", product.price),
             )
         user_cart.clear()
-        serializer = OrderSerializer(order)
+        serializer = OrderSerializer(order, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -82,9 +88,22 @@ class OrderInstance(APIView):
         serializer = OrderSerializer(order, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(
+        operation_summary="Updates an order with a new address.",
+        request_body=AddressSerializer,
+        responses={202: OrderSerializer, 400: "Bad Request"},
+    )
+    def put(self, request, pk, *args, **kwargs):
+        order = self.get_object(request, pk=pk)
+        serializer = OrderSerializer(order, data=request.data, context={"request": request})
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     def delete(self, request, pk, *args, **kwargs):
         order = self.get_object(request, pk=pk)
         order.delete()
         return Response(
-            {"message": f"Order has been deleted"}, status=status.HTTP_204_NO_CONTENT
+            {"message": "Order has been deleted"}, status=status.HTTP_204_NO_CONTENT
         )

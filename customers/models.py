@@ -1,6 +1,7 @@
+import autoslug
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.utils.text import slugify
 
 from .managers import MyUserManager
 
@@ -12,7 +13,7 @@ class Address(models.Model):
     postal_code = models.PositiveIntegerField()
     city = models.CharField(max_length=50)
     state = models.CharField(max_length=50)
-    country = models.CharField(max_length=10)
+    country = models.CharField(max_length=30)
 
     def __str__(self):
         return f"{self.city}, {self.state}"
@@ -21,7 +22,7 @@ class Address(models.Model):
 class Customer(AbstractUser):
 
     email = models.EmailField(("Email address"), max_length=254, unique=True)
-    slug = models.SlugField()
+    slug = autoslug.AutoSlugField(populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(("Date Of Birth"), null=True)
     address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)
 
@@ -34,8 +35,3 @@ class Customer(AbstractUser):
 
     def __str__(self):
         return self.email
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(f"{self.first_name} {self.last_name}")
-        return super().save(*args, **kwargs)
