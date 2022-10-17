@@ -12,6 +12,11 @@ class AddressSerializer(serializers.ModelSerializer):
         model = Address
         exclude = ["id"]
 
+    def validate_country(self, data):
+        if len(data) <= 3:
+            raise serializers.ValidationError("Country name should be in full")
+        return data
+
 
 class CustomerSerializer(serializers.ModelSerializer):
 
@@ -27,6 +32,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             "email",
             "first_name",
             "last_name",
+            "slug",
             "date_of_birth",
             "address",
             "password",
@@ -66,6 +72,7 @@ class CustomerUpdateSerializer(WritableNestedModelSerializer):
             "email",
             "first_name",
             "last_name",
+            "slug",
             "date_of_birth",
             "address",
         ]

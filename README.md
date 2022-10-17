@@ -1,10 +1,10 @@
 ## e-commerce API
-Using django/django rest framework to design an e-commerce API using braintree as payment gateaway for credit card purchases. 
+Using django/django rest framework to design an e-commerce API using Braintree as payment gateaway for credit card purchases.
 
 The API includes 
 1. JWT Authentication 
 2. Swagger documentation
-3. Braintree payment gateway integration 
+3. Braintree payment gateway integration
 4. Debug toolbar
 
 
@@ -155,20 +155,23 @@ DELETE http://127.0.0.1:8000/api/v1/orders/{id}/
 #### Payment
 Retrieve the template to input payment method details
 ```
-GET http://127.0.0.1:8000/api/v1/checkout/orders/{id}/make-payment/
+GET http://127.0.0.1:8000/api/v1/checkout/order/{id}/make-payment/
 ```
 
 Process payment for an order
 ```
-POST http://127.0.0.1:8000/api/v1/checkout/orders/{id}/make-payment/
+POST http://127.0.0.1:8000/api/v1/checkout/order/{id}/make-payment/
 
 Request body
 {  
-    card number 
-    exp date
+    5555 5555 5555 4444 
+    02/24
 }
 ```
+Paid orders are exported to a csv file.
+If you get an error (e.g. processor declined) while testing payments, check the **[Braintree docs](https://developer.paypal.com/braintree/docs/reference/general/testing/python)**
 
+[![(Un)Successful payments in Braintree dashboard](/images/braintree_dashboard.jpg)]
 
 ### Docs 
 The documentation for the API and the rest of it's endpoints are available at:
@@ -181,6 +184,9 @@ http://127.0.0.1:8000/api/v1/swagger/
 ```
 http://127.0.0.1:8000/api/v1/openapi/
 ```
+
+[![Swagger Documentation](/images/swagger_docs.png)]
+
 
 ## Cloning the repository
 You can clone the repository using the git command

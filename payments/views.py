@@ -14,6 +14,8 @@ from orders.models import Order
 from orders.serializers import SimpleOrderSerializer
 from products.models import Product
 
+from .utils import write_to_csv
+
 
 # Create your views here.
 gateway = braintree.BraintreeGateway(settings.BRAINTREE_CONF)
@@ -25,7 +27,7 @@ class Payment(APIView):
 
     def get_object(self, request, pk):
         try:
-            order = Order.objects.select_related('customer', 'address').get(customer=request.user, pk=pk)
+            order = Order.objects.select_related("customer", "address").get(customer=request.user, pk=pk)
             return order
         except Order.DoesNotExist:
             raise exceptions.NotFound("Order with ID not found")
@@ -52,7 +54,7 @@ class Payment(APIView):
             "postal_code": str(address.postal_code),
             "locality": address.city,
             "region": address.state,
-            "country_name": address.country,
+            "country_name": "Canada",
         }
         nonce_from_client = request.data["payment_method_nonce"]
         result = gateway.transaction.sale(
@@ -67,11 +69,17 @@ class Payment(APIView):
             }
         )
         if result.is_success:
-            Order.objects.filter(id=order.id).update(status='paid')
-            for i in order.order_items.all():
-                Product.objects.filter(id=i.product_id).update(stock=i.product.stock-i.quantity)
-            return Response({"success": "Payment was successful"}, status=status.HTTP_200_OK)
+            order.status = "paid"
+            order.save()
+            for item in order.order_items.all():
+                queryset = Product.objects.filter(id=item.product_id)
+                queryset.update(stock=item.product.stock - item.quantity)
+                for obj in queryset:
+                    obj.save()
+            write_to_csv(order, customer, result.transaction.id)
+            return Response(
+                {"success": "Payment was successful"}, status=status.HTTP_200_OK
+            )
         return Response(
-            {"error": f"{result.message}: {result.transaction.processor_response_code}"}, 
-            status=status.HTTP_400_BAD_REQUEST
+            {"error": f"{result.message}"}, status=status.HTTP_400_BAD_REQUEST
         )

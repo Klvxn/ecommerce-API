@@ -69,8 +69,7 @@ class ProductInstance(APIView):
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
             },
             example={"quantity": 12}
-        ),
-        
+        ), 
     )
     def post(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)

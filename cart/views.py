@@ -77,7 +77,7 @@ class CartView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         return Response(
-            {"error": "We could not process your request"},
+            {"save_for_later": "This field is required"},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

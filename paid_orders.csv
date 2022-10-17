@@ -1,0 +1,3 @@
+Order Id,Date created,Date paid,Customer,Transaction Id,Cost (USD),Status
+8656ad97-f9b8-433b-ae2b-a959065c5fa9,2022-Oct-11 10:17:54,2022-Oct-17 08:47:02,djangoadmin@dj.com,7bc2595c,1613.88,paid
+a752761c-e4a3-4b52-b34f-67e9d60ae357,2022-Oct-11 11:14:28,2022-Oct-17 08:52:56,djangoadmin@dj.com,p3bnv9t6,1748.37,paid
