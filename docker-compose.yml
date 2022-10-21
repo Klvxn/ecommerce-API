@@ -1,16 +1,19 @@
 version: '3.9'
 
 services:
+
   web:
     build: .
 
     image: ecommerce_api:v1
 
+    container_name: api_web
+
     env_file: .env
 
     command: sh -c "python manage.py makemigrations &&
-                    python manage.py migrate &&
-                    gunicorn config.wsgi:application --bind 0.0.0.0:8000"
+                    python manage.py migrate &&"
+                    python manage.py collectstatic"
 
     ports: 
       - 8000:8000
@@ -24,8 +27,8 @@ services:
       - db
 
   db:
-    image: postgres:14
-
+    image: postgres:12-alpine
+  
     volumes:
       - postgres_data:/var/lib/postgresql/data/
 

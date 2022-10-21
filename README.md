@@ -3,7 +3,7 @@ Using django/django rest framework to design an e-commerce API using Braintree a
 
 The API includes 
 1. JWT Authentication 
-2. Swagger documentation
+2. Interactive Swagger documentation
 3. Braintree payment gateway integration
 4. Debug toolbar
 
