@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  web:
+    build: .
+
+    image: ecommerce_api:v1
+
+    env_file: .env
+
+    command: sh -c "python manage.py makemigrations &&
+                    python manage.py migrate &&
+                    gunicorn config.wsgi:application --bind 0.0.0.0:8000"
+
+    ports: 
+      - 8000:8000
+
+    volumes:
+      - .:/src/api:rw
+
+    restart: "on-failure"
+
+    depends_on:
+      - db
+
+  db:
+    image: postgres:14
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
+    env_file: .env
+
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+
+volumes:
+  postgres_data:

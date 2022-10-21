@@ -48,7 +48,7 @@ class Payment(APIView):
         address = order.address
         total_cost = order.get_total_cost()
         customer_kwargs = {
-            "first_name": customer.last_name,
+            "first_name": customer.first_name,
             "last_name": customer.last_name,
             "street_address": address.street_address,
             "postal_code": str(address.postal_code),
