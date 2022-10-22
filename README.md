@@ -13,15 +13,34 @@ The API includes
 2. Django
 3. Django Rest Framework
 
+
+### Setup
+Clone the repository using the git command
+```
+git clone https://github.com/klvxn/ecommerce-API
+```
+
+Enter into the project root directory
+```
+cd ecommerce-API
+```
+
+Build the docker images and start the containers
+```
+docker-compose up
+```
+The API will be ready at localhost:8000
+
+
 ### API Endpoints 
 The various endpoints for the API.
-Assuming the local server is running at http://127.0.0.1:8000
+Assuming the local server is running at http://localhost:8000
 
 
 #### Authentication
 Create a user account
 ```
-POST http://127.0.0.1:8000/api/v1/customers/
+POST http://localhost:8000/api/v1/customers/
 
 Request body
 {
@@ -36,7 +55,7 @@ Request body
 
 Login into user account
 ```
-POST http://127.0.0.1:8000/api/v1/api-auth/login/
+POST http://localhost:8000/api/v1/api-auth/login/
 
 Request body 
 {
@@ -47,12 +66,12 @@ Request body
 
 Logout of user account
 ```
-POST http://127.0.0.1:8000/api/v1/api-auth/logout/
+POST http://localhost:8000/api/v1/api-auth/logout/
 ```
 
 Retrieve access token for user
 ```
-POST http://127.0.0.1:8000/api/v1/api-auth/token/
+POST http://localhost:8000/api/v1/api-auth/token/
 
 Request body 
 {
@@ -63,21 +82,21 @@ Request body
 
 Refresh access token for user
 ```
-POST http://127.0.0.1:8000/api/v1/api-auth/token/refresh/
+POST http://localhost:8000/api/v1/api-auth/token/refresh/
 ```
 
 #### Products 
 Retrieve all products or a single product
 ```
-GET http://127.0.0.1:8000/api/v1/products/
+GET http://localhost:8000/api/v1/products/
 
 
-GET http://127.0.0.1:8000/api/v1/products/{id}
+GET http://localhost:8000/api/v1/products/{id}
 ```
 
 Add a product with Id to cart
 ```
-POST http://127.0.0.1:8000/api/v1/products/{Id}/
+POST http://localhost:8000/api/v1/products/{Id}/
 
 Request body
 {
@@ -87,24 +106,24 @@ Request body
 
 Remove a product from cart 
 ```
-DELETE http://127.0.0.1:8000/api/v1/products/{Id}/
+DELETE http://localhost:8000/api/v1/products/{Id}/
 ```
 
 
 #### Cart 
 Retrieve cart
 ```
-GET http://127.0.0.1:8000/api/v1/cart/
+GET http://localhost:8000/api/v1/cart/
 ```
 
 Create an order from user's cart if the user wants to save it for later
 ```
-POST http://127.0.0.1:8000/api/v1/cart/
+POST http://localhost:8000/api/v1/cart/
 ```
 
 Update an item in cart
 ```
-PUT http://127.0.0.1:8000/api/v1/cart/
+PUT http://localhost:8000/api/v1/cart/
 
 Request body 
 {
@@ -114,7 +133,7 @@ Request body
 
 Remove an item from cart
 ```
-DELETE http://127.0.0.1:8000/api/v1/cart/
+DELETE http://localhost:8000/api/v1/cart/
 
 Request body 
 {
@@ -127,14 +146,14 @@ if request body is empty, cart will be cleared.
 #### Orders 
 Retrieve all orders or a single order
 ```
-GET http://127.0.0.1:8000/api/v1/orders/
+GET http://localhost:8000/api/v1/orders/
 
-GET http://127.0.0.1:8000/api/v1/orders/{id}
+GET http://localhost:8000/api/v1/orders/{id}
 ```
 
 Create an order from user's cart
 ```
-POST http://127.0.0.1:8000/api/v1/orders/
+POST http://localhost:8000/api/v1/orders/
 
 Request body
 {
@@ -148,19 +167,19 @@ Request body
 
 Delete an order
 ```
-DELETE http://127.0.0.1:8000/api/v1/orders/{id}/
+DELETE http://localhost:8000/api/v1/orders/{id}/
 ```
 
 
 #### Payment
 Retrieve the template to input payment method details
 ```
-GET http://127.0.0.1:8000/api/v1/checkout/order/{id}/make-payment/
+GET http://localhost:8000/api/v1/checkout/order/{id}/make-payment/
 ```
 
 Process payment for an order
 ```
-POST http://127.0.0.1:8000/api/v1/checkout/order/{id}/make-payment/
+POST http://localhost:8000/api/v1/checkout/order/{id}/make-payment/
 
 Request body
 {  
@@ -177,19 +196,15 @@ If you get an error (e.g. processor declined) while testing payments, check the 
 The documentation for the API and the rest of it's endpoints are available at:
 
 ```
-http://127.0.0.1:8000/api/v1/swagger/
+http://localhost:8000/api/v1/swagger/
 ```
 ### Schema 
 
 ```
-http://127.0.0.1:8000/api/v1/openapi/
+http://localhost:8000/api/v1/openapi/
 ```
 
 ![Swagger Documentation](/images/swagger_docs.png)
 
 
 ## Cloning the repository
-You can clone the repository using the git command
-```
-git clone https://github.com/klvxn/ecommerce-API
-```
