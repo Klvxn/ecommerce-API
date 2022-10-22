@@ -16,7 +16,8 @@ class ReviewInline(admin.TabularInline):
 
     model = Review
     extra = 0
-    
+    fk_name = "product"
+
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
