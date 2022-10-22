@@ -18,25 +18,21 @@ class Cart:
         self.cart = cart
 
     def __iter__(self):
-        product_ids = self.cart.keys()
-        products = Product.objects.filter(id__in=product_ids)
-
-        cart = self.cart.copy()
-        for product in products:
-            cart[str(product.id)]['product'] = str(product)
-
-        for item in cart.values():
-            item['total_price'] = Decimal(item['price']) * item['quantity']
-            item['total_price'] = str(item['total_price'])
+        for item in self.cart.values():
+            item["total price"] = Decimal(item["price"]) * item["quantity"]
+            item["total price"] = str(item["total price"])
             yield item
 
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add_item(self, product, quantity=None):
-        product_id = str(product.id)
-        if product_id not in self.cart:
-            self.cart[product_id] = {"price": str(product.price), "quantity": quantity}
+    def add_item(self, product: Product, quantity: int):
+        if product.id not in self.cart:
+            self.cart[product.id] = {
+                "product": product.name,
+                "price": str(product.price),
+                "quantity": quantity,
+            }
             return self.save()
         else:
             self.update_item(product, quantity)
@@ -50,10 +46,9 @@ class Cart:
         self.session.modified = True
         return True
 
-    def remove_item(self, product):
-        product_id = str(product.id)
-        if product_id in self.cart:
-            del self.cart[product_id]
+    def remove_item(self, product: Product):
+        if product.id in self.cart:
+            del self.cart[product.id]
             return self.save()
 
     def clear(self):

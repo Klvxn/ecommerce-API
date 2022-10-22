@@ -45,30 +45,36 @@ class OrdersList(APIView):
         responses={201: OrderSerializer},
     )
     def post(self, request, *args, **kwargs):
-        data = request.data
-        user_address = Address.objects.create(
-            street_address=data["street_address"],
-            postal_code=data["postal_code"],
-            city=data["city"],
-            state=data["state"],
-            country=data["country"],
-        )
-        order = Order.objects.create(
-            customer=request.user,
-            address=user_address
-        )
         user_cart = Cart(request)
-        for item in user_cart:
-            product = Product.objects.get(name=item["product"])
-            OrderItem.objects.create(
-                order=order,
-                product=product,
-                quantity=item.get("quantity", 1),
-                cost_per_item=item.get("price", product.price),
+        if len(user_cart) > 0:
+            data = request.data
+            user_address = Address.objects.create(
+                street_address=data["street_address"],
+                postal_code=data["postal_code"],
+                city=data["city"],
+                state=data["state"],
+                country=data["country"],
             )
-        user_cart.clear()
-        serializer = OrderSerializer(order, context={"request": request})
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+            order = Order.objects.create(
+                customer=request.user,
+                address=user_address
+            )
+            for item in user_cart:
+                product = Product.objects.get(name=item["product"])
+                OrderItem.objects.create(
+                    order=order,
+                    product=product,
+                    quantity=item.get("quantity", 1),
+                    cost_per_item=item.get("price", product.price),
+                )
+            user_cart.clear()
+            serializer = OrderSerializer(order, context={"request": request})
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        else:
+            return Response(
+                {"error": "An order can't be created. Your cart is empty"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
 
 
 class OrderInstance(APIView):

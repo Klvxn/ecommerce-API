@@ -3,14 +3,14 @@ from rest_framework import serializers
 
 from customers.models import Address
 from customers.serializers import AddressSerializer
-from products.serializers import ProductSerializer
+from products.serializers import SimpleProductSerializer
 
 from .models import Order, OrderItem
 
 
 class OrderItemSerializer(WritableNestedModelSerializer):
 
-    product = ProductSerializer()
+    product = SimpleProductSerializer()
     cost = serializers.ReadOnlyField(source="get_cost")
 
     class Meta:

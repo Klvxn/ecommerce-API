@@ -54,7 +54,7 @@ class Payment(APIView):
             "postal_code": str(address.postal_code),
             "locality": address.city,
             "region": address.state,
-            "country_name": "Canada",
+            "country_name": address.country,
         }
         nonce_from_client = request.data["payment_method_nonce"]
         result = gateway.transaction.sale(
@@ -71,7 +71,7 @@ class Payment(APIView):
         if result.is_success:
             order.status = "paid"
             order.save()
-            for item in order.order_items.all():
+            for item in order.order_items.all().select_related('product'):
                 queryset = Product.objects.filter(id=item.product_id)
                 queryset.update(stock=item.product.stock - item.quantity)
                 for obj in queryset:

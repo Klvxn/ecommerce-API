@@ -18,3 +18,16 @@ class ProductSerializer(serializers.ModelSerializer):
             "price",
             "available",
         ]
+
+
+class SimpleProductSerializer(serializers.ModelSerializer):
+
+    category = serializers.StringRelatedField()
+    
+    class Meta:
+        model = Product
+        fields = [
+            "name",
+            "category",
+            "price",
+        ]

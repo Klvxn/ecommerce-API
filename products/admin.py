@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
 
-from .models import Category, Product
+from .models import Category, Product, Review
 
 
 # Register your models here.
@@ -12,10 +12,17 @@ class CategoryAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ["name"]}
 
 
+class ReviewInline(admin.TabularInline):
+
+    model = Review
+    extra = 0
+    
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
 
     actions = ["make_unavailable"]
+    inlines = [ReviewInline]
     list_display = ["name", "category", "stock", "price", "available"]
     list_editable = ["category", "available", "stock", "price"]
     list_filter = ["category", "available"]

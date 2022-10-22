@@ -1,8 +1,12 @@
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils.text import slugify
 
 
 # Create your models here.
+User = get_user_model()
+
+
 class Category(models.Model):
 
     name = models.CharField(max_length=50, db_index=True)
@@ -42,3 +46,11 @@ class Product(models.Model):
         if self.stock > 0:
             self.available = True
         return super().save(*args, **kwargs)
+
+
+class Review(models.Model):
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    review = models.TextField()
+    created = models.DateTimeField(auto_now_add=True)

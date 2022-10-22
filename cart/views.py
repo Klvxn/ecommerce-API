@@ -77,7 +77,7 @@ class CartView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         return Response(
-            {"save_for_later": "This field is required"},
+            {"save_for_later": ["This field is required"]},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -101,15 +101,16 @@ class CartView(APIView):
         user_cart = Cart(request)
         for key, value in data.items():
             product = get_object_or_404(Product, name=key)
-            quantity = value
-            updated = user_cart.update_item(product, quantity)
-            if updated:
+            if str(product.id) in user_cart.cart.keys():
+                user_cart.update_item(product, quantity=value)
                 return Response(
                     {"message": "Cart updated"}, status=status.HTTP_202_ACCEPTED
                 )
-            return Response(
-                {"message": "Server Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            else:
+                return Response(
+                    {"message": "This item is not in your cart"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
     @swagger_auto_schema(
         operation_summary="Removes an item from cart or clears the cart",
@@ -135,6 +136,11 @@ class CartView(APIView):
                     return Response(
                         {"message": "Item has been removed from cart"},
                         status=status.HTTP_204_NO_CONTENT,
+                    )
+                else:
+                    return Response(
+                        {"message": "This item is not in your cart"},
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
         user_cart.clear()
         return Response(
