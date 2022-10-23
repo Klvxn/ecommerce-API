@@ -78,7 +78,7 @@ class ProductInstance(APIView):
         user_cart.add_item(product=product, quantity=quantity)
         return Response(
             {"success": f"{product} has been added to cart"},
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )
 
     @swagger_auto_schema(operation_summary="Deletes a product from cart")

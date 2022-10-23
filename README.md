@@ -20,7 +20,7 @@ Clone the repository using the git command
 git clone https://github.com/klvxn/ecommerce-API
 ```
 
-Enter into the project root directory
+Enter into the project's root directory
 ```
 cd ecommerce-API
 ```

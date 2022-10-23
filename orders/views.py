@@ -73,7 +73,7 @@ class OrdersList(APIView):
         else:
             return Response(
                 {"error": "An order can't be created. Your cart is empty"},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
 
@@ -97,14 +97,14 @@ class OrderInstance(APIView):
     @swagger_auto_schema(
         operation_summary="Updates an order with a new address.",
         request_body=AddressSerializer,
-        responses={202: OrderSerializer, 400: "Bad Request"},
+        responses={201: OrderSerializer, 400: "Bad Request"},
     )
     def put(self, request, pk, *args, **kwargs):
         order = self.get_object(request, pk=pk)
         serializer = OrderSerializer(order, data=request.data, context={"request": request})
         if serializer.is_valid(raise_exception=True):
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk, *args, **kwargs):

@@ -81,5 +81,5 @@ class Payment(APIView):
                 {"success": "Payment was successful"}, status=status.HTTP_200_OK
             )
         return Response(
-            {"error": f"{result.message}"}, status=status.HTTP_400_BAD_REQUEST
+            {"error": f"{result.message}"}, status=status.HTTP_502_BAD_GATEWAY
         )

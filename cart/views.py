@@ -104,7 +104,7 @@ class CartView(APIView):
             if str(product.id) in user_cart.cart.keys():
                 user_cart.update_item(product, quantity=value)
                 return Response(
-                    {"message": "Cart updated"}, status=status.HTTP_202_ACCEPTED
+                    {"message": "Cart updated"}, status=status.HTTP_200_OK
                 )
             else:
                 return Response(
