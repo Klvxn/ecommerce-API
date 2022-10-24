@@ -5,7 +5,7 @@ The API includes
 1. JWT Authentication 
 2. Interactive Swagger documentation
 3. Braintree payment gateway integration
-4. Debug toolbar
+4. Debug toolbar and more...
 
 
 ### Requirements

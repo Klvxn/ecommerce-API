@@ -29,19 +29,20 @@ class ProductsList(APIView):
     )
     def get(self, request, slug=None, *args, **kwargs):
         available_products = Product.objects.filter(available=True)
+        context = {"request": request}
         if request.query_params:
             query = request.query_params.get("search")
             products = available_products.filter(
                 Q(name__icontains=query) | Q(category__name__icontains=query)
             )
-            serializer = ProductsSerializer(products, many=True)
+            serializer = ProductsSerializer(products, context=context, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         elif slug:
             products = available_products.filter(category__slug=slug)
-            serializer = ProductsSerializer(products, many=True)
+            serializer = ProductsSerializer(products, context=context, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        serializer = ProductsSerializer(available_products, many=True)
+        serializer = ProductsSerializer(available_products, context=context, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

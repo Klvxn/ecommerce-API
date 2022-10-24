@@ -29,14 +29,15 @@ class OrdersList(APIView):
     )
     def get(self, request, *args, **kwargs):
         customer = request.user
+        context = {"request": request}
         if request.query_params:
             query = request.query_params.get("status")
             orders = Order.objects.filter(customer=customer, status=query)
-            serializer = OrderSerializer(orders, many=True, context={"request": request})
+            serializer = OrderSerializer(orders, context=context, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         orders = Order.objects.filter(customer=customer)
-        serializer = OrderSerializer(orders, many=True, context={"request": request})
+        serializer = OrderSerializer(orders, context=context, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
@@ -46,6 +47,7 @@ class OrdersList(APIView):
     )
     def post(self, request, *args, **kwargs):
         user_cart = Cart(request)
+        context = {"request": request}
         if len(user_cart) > 0:
             data = request.data
             user_address = Address.objects.create(
@@ -68,7 +70,7 @@ class OrdersList(APIView):
                     cost_per_item=item.get("price", product.price),
                 )
             user_cart.clear()
-            serializer = OrderSerializer(order, context={"request": request})
+            serializer = OrderSerializer(order, context=context)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
             return Response(
@@ -91,7 +93,8 @@ class OrderInstance(APIView):
 
     def get(self, request, pk, *args, **kwargs):
         order = self.get_object(request, pk=pk)
-        serializer = OrderSerializer(order, context={"request": request})
+        context = {"request": request}
+        serializer = OrderSerializer(order, context=context)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
@@ -101,7 +104,9 @@ class OrderInstance(APIView):
     )
     def put(self, request, pk, *args, **kwargs):
         order = self.get_object(request, pk=pk)
-        serializer = OrderSerializer(order, data=request.data, context={"request": request})
+        context = {"request": request}
+        data =  {"address": request.data}
+        serializer = OrderSerializer(order, context=context, data=data)
         if serializer.is_valid(raise_exception=True):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)

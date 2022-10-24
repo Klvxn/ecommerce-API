@@ -61,7 +61,7 @@ class Payment(APIView):
             {
                 "amount": f"{total_cost:.2f}",
                 "payment_method_nonce": nonce_from_client,
-                "billing": {**customer_kwargs},
+                "shipping": {**customer_kwargs},
                 "options": {
                     "submit_for_settlement": True,
                     "store_in_vault_on_success": True,

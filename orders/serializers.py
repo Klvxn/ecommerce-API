@@ -41,7 +41,10 @@ class OrderSerializer(WritableNestedModelSerializer):
     
     def update(self, instance, validated_data):
         data = validated_data.get("address", instance.address)
-        address, created = Address.objects.get_or_create(**data)
+        try:
+            address, created = Address.objects.get_or_create(**data)
+        except Address.MultipleObjectsReturned:
+            address = Address.objects.filter(**data).first()
         instance.address = address
         return instance
 

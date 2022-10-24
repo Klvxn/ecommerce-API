@@ -47,8 +47,9 @@ class Cart:
         return True
 
     def remove_item(self, product: Product):
-        if product.id in self.cart:
-            del self.cart[product.id]
+        product_id = str(product.id)
+        if product_id in self.cart:
+            del self.cart[product_id]
             return self.save()
 
     def clear(self):

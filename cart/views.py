@@ -1,4 +1,6 @@
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404
+from django.utils.decorators import method_decorator
 
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
@@ -49,6 +51,7 @@ class CartView(APIView):
         ),
         responses={201: OrderSerializer, 400: "Bad request"},
     )
+    @method_decorator(login_required(login_url="/api/v1/api-auth/login/"))
     def post(self, request, *args, **kwargs):
         data = request.data
         action = data.get("save_for_later", False)
