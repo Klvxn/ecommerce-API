@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Product, Review
+from .models import Product, Review, Vendor
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -12,28 +12,40 @@ class ReviewSerializer(serializers.ModelSerializer):
         fields = ["user", "review"]
 
 
-class ProductSerializer(serializers.ModelSerializer):
+class ProductsSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
-    reviews = ReviewSerializer(many=True, required=False)
-    
+    vendor = serializers.HyperlinkedRelatedField(view_name="vendor", lookup_field="slug", read_only=True)
+
     class Meta:
         model = Product
         fields = [
             "name",
             "category",
+            "vendor",
             "description",
             "image_url",
             "stock",
             "price",
-            "reviews",
         ]
+
+
+class ProductInstanceSerializer(serializers.ModelSerializer):
+
+    reviews = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ProductsSerializer.Meta.fields + ["reviews"]
+
+    def get_reviews(self, obj):
+        return obj.get_latest_reviews()
 
 
 class SimpleProductSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
-    
+
     class Meta:
         model = Product
         fields = [
@@ -41,3 +53,11 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "category",
             "price",
         ]
+
+
+class VendorSerializer(serializers.ModelSerializer):
+
+    product_set = ProductsSerializer(many=True)
+    class Meta:
+        model = Vendor
+        fields = ["brand_name", "product_set"]

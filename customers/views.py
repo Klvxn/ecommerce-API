@@ -1,9 +1,9 @@
+from drf_yasg.utils import swagger_auto_schema
+
 from rest_framework import exceptions, status
-from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
-
-from drf_yasg.utils import swagger_auto_schema
+from rest_framework.views import APIView
 
 from .models import Customer
 from .permissions import CustomerOnly
@@ -20,7 +20,7 @@ class CustomerCreate(APIView):
             permission_classes = [AllowAny]
             return [permission() for permission in permission_classes]
         return super().get_permissions()
-        
+
     def get(self, request, *args, **kwargs):
         customers = Customer.objects.all()
         serializer = CustomerSerializer(customers, many=True)
@@ -30,7 +30,7 @@ class CustomerCreate(APIView):
     def post(self, request, *args, **kwargs):
         serializer = CustomerSerializer(data=request.data)
         if serializer.is_valid(raise_exception=True):
-            serializer.save()            
+            serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -43,7 +43,9 @@ class CustomerInstance(APIView):
         try:
             return Customer.objects.get(pk=pk)
         except Customer.DoesNotExist:
-            raise exceptions.NotFound({"error": "Customer with supplied ID doesn't exist."})
+            raise exceptions.NotFound(
+                {"error": "Customer with supplied ID doesn't exist."}
+            )
 
     def get(self, request, pk, *args, **kwargs):
         self.check_permissions(request)

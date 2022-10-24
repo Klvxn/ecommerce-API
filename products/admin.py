@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
 
-from .models import Category, Product, Review
+from .models import Category, Product, Review, Vendor
 
 
 # Register your models here.
@@ -26,7 +26,7 @@ class ProductAdmin(admin.ModelAdmin):
     inlines = [ReviewInline]
     list_display = ["name", "category", "stock", "price", "available"]
     list_editable = ["category", "available", "stock", "price"]
-    list_filter = ["category", "available"]
+    list_filter = ["available", "category", "created", "vendor"]
     preserve_filters = True
     search_fields = ["name"]
 
@@ -36,9 +36,24 @@ class ProductAdmin(admin.ModelAdmin):
         self.message_user(
             request,
             ngettext(
-                f"{updated} product has been marked as unavailable", 
-                f"{updated} products have been marked as unavailable", 
+                f"{updated} product has been marked as unavailable",
+                f"{updated} products have been marked as unavailable",
                 updated
-            ), 
+            ),
             messages.SUCCESS
         )
+
+
+class ProductInline(admin.StackedInline):
+
+    model = Product
+    extra = 0
+    raw_id_fields = ["vendor"]
+
+
+@admin.register(Vendor)
+class VendorAdmin(admin.ModelAdmin):
+
+    list_display = ["brand_name", "customer", "slug", "products_count"]
+    inlines = [ProductInline]
+    search_fields = ["brand_name"]

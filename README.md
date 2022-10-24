@@ -190,7 +190,7 @@ Request body
 Paid orders are exported to a csv file.
 If you get an error (e.g. processor declined) while testing payments, check the **[Braintree docs](https://developer.paypal.com/braintree/docs/reference/general/testing/python)**
 
-![(Un)Successful payments in Braintree dashboard](/images/braintree_dashboard.jpg)
+![(Un)Successful payments in Braintree dashboard](/assets/braintree_dashboard.jpg)
 
 ### Docs 
 The documentation for the API and the rest of it's endpoints are available at:
@@ -204,7 +204,5 @@ http://localhost:8000/api/v1/swagger/
 http://localhost:8000/api/v1/openapi/
 ```
 
-![Swagger Documentation](/images/swagger_docs.png)
+![Swagger Documentation](/assets/swagger_docs.png)
 
-
-## Cloning the repository

@@ -1,10 +1,26 @@
-from django.contrib.auth import get_user_model
+import autoslug
+
 from django.db import models
 from django.utils.text import slugify
 
+from customers.models import Customer
+
 
 # Create your models here.
-User = get_user_model()
+class Vendor(models.Model):
+
+    brand_name = models.CharField(max_length=50, unique=True, db_index=True)
+    customer = models.OneToOneField(Customer, on_delete=models.CASCADE)
+    slug = autoslug.AutoSlugField(populate_from="brand_name", unique=True)
+
+    class Meta:
+        default_related_name = "products"
+
+    def __str__(self):
+        return self.brand_name
+
+    def products_count(self):
+        return self.product_set.all().count()
 
 
 class Category(models.Model):
@@ -19,7 +35,7 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
-    
+
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
@@ -31,10 +47,14 @@ class Product(models.Model):
     name = models.CharField(max_length=50, unique=True, db_index=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
     description = models.TextField()
+    vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, null=True)
     image_url = models.URLField()
     stock = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=6, decimal_places=2)
+    label = models.CharField(max_length=20, null=True, blank=True)
     available = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["category", "name"]
@@ -45,12 +65,21 @@ class Product(models.Model):
     def save(self, *args, **kwargs):
         if self.stock > 0:
             self.available = True
+        else:
+            self.available = False
         return super().save(*args, **kwargs)
 
+    def get_latest_reviews(self):
+        return self.reviews.values("user__email", "review", "created").order_by("-created")[:10]
+    
 
 class Review(models.Model):
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(Customer, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="reviews")
     review = models.TextField()
     created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_permissions = ["view"]
+        get_latest_by = "created"

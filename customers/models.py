@@ -25,7 +25,7 @@ class Customer(AbstractUser):
     slug = autoslug.AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(("Date Of Birth"), null=True)
     address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)
-
+    
     username = None
 
     USERNAME_FIELD = "email"

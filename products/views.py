@@ -1,17 +1,17 @@
 from django.db.models import Q
 
-from rest_framework import exceptions, status
-from rest_framework.permissions import AllowAny
-from rest_framework.views import APIView
-from rest_framework.response import Response
-
-from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
+
+from rest_framework import exceptions, generics, status
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from cart.cart import Cart
 
-from .models import Product
-from .serializers import ProductSerializer
+from .models import Product, Vendor
+from .serializers import ProductInstanceSerializer, ProductsSerializer, VendorSerializer
 
 
 # Create your views here.
@@ -25,7 +25,7 @@ class ProductsList(APIView):
                 name="search", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING
             )
         ],
-        responses={200: ProductSerializer(many=True)},
+        responses={200: ProductsSerializer(many=True)},
     )
     def get(self, request, slug=None, *args, **kwargs):
         available_products = Product.objects.filter(available=True)
@@ -34,14 +34,14 @@ class ProductsList(APIView):
             products = available_products.filter(
                 Q(name__icontains=query) | Q(category__name__icontains=query)
             )
-            serializer = ProductSerializer(products, many=True)
+            serializer = ProductsSerializer(products, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         elif slug:
             products = available_products.filter(category__slug=slug)
-            serializer = ProductSerializer(products, many=True)
+            serializer = ProductsSerializer(products, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        serializer = ProductSerializer(available_products, many=True)
+        serializer = ProductsSerializer(available_products, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -57,7 +57,7 @@ class ProductInstance(APIView):
 
     def get(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
-        serializer = ProductSerializer(product)
+        serializer = ProductInstanceSerializer(product)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
@@ -68,13 +68,18 @@ class ProductInstance(APIView):
             properties={
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
             },
-            example={"quantity": 12}
-        ), 
+            example={"quantity": 12},
+        ),
     )
     def post(self, request, pk, *args, **kwargs):
         product = self.get_object(pk=pk)
         user_cart = Cart(request)
         quantity = request.data.get("quantity", 1)
+        if quantity > product.stock:
+            return Response(
+                {"error": "The quantity cannot be more than product's stock"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user_cart.add_item(product=product, quantity=quantity)
         return Response(
             {"success": f"{product} has been added to cart"},
@@ -92,5 +97,14 @@ class ProductInstance(APIView):
                 status=status.HTTP_204_NO_CONTENT,
             )
         return Response(
-            {"message": f"{product} is not in cart."}, status=status.HTTP_409_CONFLICT
+            {"message": f"{product} is not in cart."},
+            status=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class VendorInstance(generics.RetrieveAPIView):
+
+    lookup_field = "slug"
+    queryset = Vendor.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = VendorSerializer
