@@ -1,5 +1,4 @@
 from django.contrib.auth.password_validation import validate_password
-
 from drf_writable_nested.serializers import WritableNestedModelSerializer
 from rest_framework import serializers
 

@@ -1,6 +1,5 @@
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-
 from rest_framework import exceptions, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -85,7 +84,7 @@ class OrderInstance(APIView):
 
     def get_object(self, request, pk, *args, **kwargs):
         order = Order.objects.filter(customer=request.user, pk=pk).first()
-        if order == None:
+        if order is None:
             raise exceptions.NotFound(
                 {"error": "Order with supplied Order ID not found"}
             )
@@ -105,7 +104,7 @@ class OrderInstance(APIView):
     def put(self, request, pk, *args, **kwargs):
         order = self.get_object(request, pk=pk)
         context = {"request": request}
-        data =  {"address": request.data}
+        data = {"address": request.data}
         serializer = OrderSerializer(order, context=context, data=data)
         if serializer.is_valid(raise_exception=True):
             serializer.save()

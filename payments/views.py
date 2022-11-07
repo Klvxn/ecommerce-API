@@ -1,10 +1,8 @@
 import json
 
 import braintree
-
 from django.conf import settings
 from django.template.response import TemplateResponse
-
 from rest_framework import exceptions, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response

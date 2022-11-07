@@ -18,7 +18,7 @@ class Order(models.Model):
         UNPAID = "unpaid"
         DELIVERED = "delivered"
 
-    id = models.UUIDField(("Order Id"), primary_key=True, default=uuid4, editable=False)
+    id = models.UUIDField("Order Id", primary_key=True, default=uuid4, editable=False)
     customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
     address = models.ForeignKey(
         Address,
@@ -29,7 +29,7 @@ class Order(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     status = models.CharField(
-        ("Order status"),
+        "Order status",
         choices=OrderStatus.choices,
         default=OrderStatus.UNPAID,
         max_length=10,

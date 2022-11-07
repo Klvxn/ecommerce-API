@@ -44,6 +44,7 @@ urls = [
     path("", include("orders.urls")),
     path("", include("payments.urls")),
     path("", include("products.urls")),
+    path("", include("vendors.urls")),
     path(
         "openapi/",
         schemas.get_schema_view(

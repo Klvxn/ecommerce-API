@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Product, Review, Vendor
+from .models import Product, Review
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -53,11 +53,3 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "category",
             "price",
         ]
-
-
-class VendorSerializer(serializers.ModelSerializer):
-
-    product_set = ProductsSerializer(many=True)
-    class Meta:
-        model = Vendor
-        fields = ["brand_name", "product_set"]

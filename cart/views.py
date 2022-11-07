@@ -1,10 +1,8 @@
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
-
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response

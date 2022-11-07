@@ -1,17 +1,15 @@
 from django.db.models import Q
-
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-
-from rest_framework import exceptions, generics, status
+from rest_framework import exceptions, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cart.cart import Cart
 
-from .models import Product, Vendor
-from .serializers import ProductInstanceSerializer, ProductsSerializer, VendorSerializer
+from .models import Product
+from .serializers import ProductInstanceSerializer, ProductsSerializer
 
 
 # Create your views here.
@@ -101,11 +99,3 @@ class ProductInstance(APIView):
             {"message": f"{product} is not in cart."},
             status=status.HTTP_400_BAD_REQUEST,
         )
-
-
-class VendorInstance(generics.RetrieveAPIView):
-
-    lookup_field = "slug"
-    queryset = Vendor.objects.all()
-    permission_classes = [AllowAny]
-    serializer_class = VendorSerializer

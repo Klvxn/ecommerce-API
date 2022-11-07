@@ -1,28 +1,11 @@
-import autoslug
-
 from django.db import models
 from django.utils.text import slugify
 
 from customers.models import Customer
+from vendors.models import Vendor
 
 
 # Create your models here.
-class Vendor(models.Model):
-
-    brand_name = models.CharField(max_length=50, unique=True, db_index=True)
-    customer = models.OneToOneField(Customer, on_delete=models.CASCADE)
-    slug = autoslug.AutoSlugField(populate_from="brand_name", unique=True)
-
-    class Meta:
-        default_related_name = "products"
-
-    def __str__(self):
-        return self.brand_name
-
-    def products_count(self):
-        return self.product_set.all().count()
-
-
 class Category(models.Model):
 
     name = models.CharField(max_length=50, db_index=True)
@@ -81,5 +64,4 @@ class Review(models.Model):
     created = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        default_permissions = ["view"]
         get_latest_by = "created"

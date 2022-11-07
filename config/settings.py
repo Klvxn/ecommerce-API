@@ -11,8 +11,10 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
+import braintree
 from dotenv import load_dotenv
 
 
@@ -51,6 +53,7 @@ INSTALLED_APPS = [
     'orders.apps.OrdersConfig',
     'payments.apps.PaymentsConfig',
     'products.apps.ProductsConfig',
+    'vendors.apps.VendorsConfig',
 
     # Third party apps
     'debug_toolbar',
@@ -141,7 +144,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
-STATIC_ROOT =  BASE_DIR / "staticfiles"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.0/ref/settings/#default-auto-field
@@ -172,8 +175,6 @@ SWAGGER_SETTINGS = {
 
 
 # SimpleJWT settings
-from datetime import timedelta
-
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
@@ -181,8 +182,6 @@ SIMPLE_JWT = {
 
 
 # Braintree settings
-import braintree
-
 BRAINTREE_MERCHANT_ID = os.environ['BRAINTREE_MERCHANT_ID']
 BRAINTREE_PUBLIC_KEY = os.environ['BRAINTREE_PUBLIC_KEY']
 BRAINTREE_PRIVATE_KEY = os.environ['BRAINTREE_PRIVATE_KEY']
