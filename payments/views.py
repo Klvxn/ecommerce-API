@@ -71,7 +71,7 @@ class Payment(APIView):
             order.save()
             for item in order.order_items.all().select_related('product'):
                 queryset = Product.objects.filter(id=item.product_id)
-                queryset.update(stock=item.product.stock - item.quantity)
+                queryset.update(stock=item.product.stock - item.quantity, sold=item.quantity)
                 for obj in queryset:
                     obj.save()
             write_to_csv(order, customer, result.transaction.id)

@@ -55,8 +55,9 @@ class ProductInstance(APIView):
             raise exceptions.NotFound({"error": "Product not found."})
 
     def get(self, request, pk, *args, **kwargs):
+        context = {"request": request}
         product = self.get_object(pk=pk)
-        serializer = ProductInstanceSerializer(product)
+        serializer = ProductInstanceSerializer(product, context=context)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(

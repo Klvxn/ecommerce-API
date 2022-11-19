@@ -19,8 +19,8 @@ class Cart:
 
     def __iter__(self):
         for item in self.cart.values():
-            item["total price"] = Decimal(item["price"]) * item["quantity"]
-            item["total price"] = str(item["total price"])
+            item["cost"] = Decimal(item["price"]) * item["quantity"]
+            item["cost"] = str(item["cost"])
             yield item
 
     def __len__(self):

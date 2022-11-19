@@ -33,6 +33,7 @@ class Product(models.Model):
     vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, null=True)
     image_url = models.URLField()
     stock = models.PositiveIntegerField()
+    sold = models.PositiveIntegerField(default=0)
     price = models.DecimalField(max_digits=6, decimal_places=2)
     label = models.CharField(max_length=20, null=True, blank=True)
     available = models.BooleanField(default=False)

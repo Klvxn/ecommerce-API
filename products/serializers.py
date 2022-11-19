@@ -27,10 +27,11 @@ class ProductsSerializer(serializers.ModelSerializer):
             "image_url",
             "stock",
             "price",
+            "sold",
         ]
 
 
-class ProductInstanceSerializer(serializers.ModelSerializer):
+class ProductInstanceSerializer(ProductsSerializer):
 
     reviews = serializers.SerializerMethodField()
 

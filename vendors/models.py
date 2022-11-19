@@ -19,3 +19,5 @@ class Vendor(models.Model):
     def products_count(self):
         return self.product_set.all().count()
 
+    def get_total_products_sold(self):
+        return sum(product.sold for product in self.product_set.all())
