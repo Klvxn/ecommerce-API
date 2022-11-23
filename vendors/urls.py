@@ -1,9 +1,8 @@
-from django.urls import path
+from rest_framework.routers import SimpleRouter
 
-from .views import VendorCreate, VendorInstance
+from .views import VendorViewSet
 
 
-urlpatterns = [
-    path("vendors/", VendorCreate.as_view(), name="vendor"),
-    path("vendors/<slug:slug>/", VendorInstance.as_view(), name="vendor")
-]
+router = SimpleRouter()
+router.register(r"vendors", VendorViewSet, basename="vendor")
+urlpatterns = router.urls

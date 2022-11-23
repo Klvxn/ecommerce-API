@@ -47,9 +47,7 @@ class CustomerInstance(APIView):
             )
 
     def get(self, request, pk, *args, **kwargs):
-        self.check_permissions(request)
         customer = self.get_object(pk=pk)
-        self.check_object_permissions(request, obj=customer)
         serializer = CustomerSerializer(customer)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
