@@ -15,8 +15,8 @@ class ReviewSerializer(serializers.ModelSerializer):
 class ProductsSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
-    vendor = serializers.HyperlinkedRelatedField(view_name="vendor", lookup_field="slug", read_only=True)
-
+    vendor = serializers.HyperlinkedRelatedField(view_name="vendor-detail", lookup_field="slug", read_only=True)
+    
     class Meta:
         model = Product
         fields = [

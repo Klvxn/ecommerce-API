@@ -29,7 +29,7 @@ class CartView(APIView):
                 data.append(item)
             return Response(
                 {
-                    "Cart Items": data,
+                    "Cart items": data,
                     "Items count": len(user_cart),
                     "Total cost": user_cart.get_total_cost(),
                 },
