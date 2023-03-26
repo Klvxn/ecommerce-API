@@ -21,9 +21,7 @@ class CustomerSerializer(serializers.ModelSerializer):
 
     address = AddressSerializer(read_only=True)
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    password2 = serializers.CharField(
-        write_only=True, validators=[validate_password], label="Confirm Password"
-    )
+    password2 = serializers.CharField(write_only=True, validators=[validate_password]    )
 
     class Meta:
         model = Customer

@@ -11,12 +11,14 @@ from .models import Order, OrderItem
 class OrderItemSerializer(WritableNestedModelSerializer):
 
     product = SimpleProductSerializer()
-    cost = serializers.ReadOnlyField(source="get_cost")
+    cost = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = OrderItem
         fields = ["product", "quantity", "cost"]
 
+    def get_cost(self, obj):
+        return f"${obj.get_cost()}"
 
 class OrderSerializer(WritableNestedModelSerializer):
 
@@ -24,7 +26,7 @@ class OrderSerializer(WritableNestedModelSerializer):
     customer = serializers.StringRelatedField()
     order_items = OrderItemSerializer(many=True, required=False)
     url = serializers.HyperlinkedIdentityField(view_name="order-detail")
-    total_cost = serializers.ReadOnlyField(source="get_total_cost")
+    total_cost = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
@@ -38,9 +40,12 @@ class OrderSerializer(WritableNestedModelSerializer):
             "total_cost",
             "status",
         ]
-    
+
+    def get_total_cost(self, obj):
+        return f"${obj.get_total_cost()}"
+
     def update(self, instance, validated_data):
-        data = validated_data.get("address", instance.address)
+        data = validated_data.get("address")
         try:
             address, created = Address.objects.get_or_create(**data)
         except Address.MultipleObjectsReturned:
@@ -59,7 +64,7 @@ class SimpleOrderItemSerializer(serializers.ModelSerializer):
         fields = ["product", "quantity", "cost"]
 
     def get_cost(self, obj):
-        return f"{obj.get_cost()}"
+        return f"${obj.get_cost()}"
 
 
 class SimpleOrderSerializer(serializers.ModelSerializer):
@@ -67,7 +72,7 @@ class SimpleOrderSerializer(serializers.ModelSerializer):
     address = AddressSerializer(required=False)
     customer = serializers.StringRelatedField()
     order_items = SimpleOrderItemSerializer(many=True, required=False)
-    total_cost = serializers.SerializerMethodField()
+    total_cost = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
@@ -82,4 +87,4 @@ class SimpleOrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_cost(self, obj):
-        return f"{obj.get_total_cost()}"
+        return f"${obj.get_total_cost()}"

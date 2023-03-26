@@ -20,10 +20,12 @@ def write_to_csv(order, customer, trxn_id):
     with open(filename, "a", newline="") as csvfile:
         orderwriter = csv.writer(csvfile)
         with open(filename, "r") as csvfile:
+
             if "Order Id" in csvfile.readline():
                 pass
             else:
                 orderwriter.writerow(header)
+
         details = [
             order,
             created,

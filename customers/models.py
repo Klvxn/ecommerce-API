@@ -21,7 +21,7 @@ class Address(models.Model):
 
 class Customer(AbstractUser):
 
-    email = models.EmailField(("Email address"), max_length=254, unique=True)
+    email = models.EmailField(("Email address"), max_length=254, unique=True, db_index=True)
     slug = autoslug.AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(("Date Of Birth"), null=True)
     address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)

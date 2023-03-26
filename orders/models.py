@@ -22,7 +22,7 @@ class Order(models.Model):
     customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
     address = models.ForeignKey(
         Address,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         verbose_name="Shipping address",
         null=True
     )

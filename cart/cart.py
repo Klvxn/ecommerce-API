@@ -5,13 +5,13 @@ from products.models import Product
 
 class Cart:
     """
-    Using Django sessions to store cart and items in the cart
+    Using Django sessions to store a user's cart.
     Users will be able to add, update and remove those items.
     """
 
     def __init__(self, request):
         self.session = request.session
-        self.session.set_expiry(1200)
+        self.session.set_expiry(1800)
         cart = self.session.get("cart")
         if not cart:
             cart = self.session["cart"] = {}
@@ -19,8 +19,8 @@ class Cart:
 
     def __iter__(self):
         for item in self.cart.values():
-            item["cost"] = Decimal(item["price"]) * item["quantity"]
-            item["cost"] = str(item["cost"])
+            cost = Decimal(item["price"]) * item["quantity"]
+            item["cost"] = f"${cost}"
             yield item
 
     def __len__(self):

@@ -20,70 +20,92 @@ class CartView(APIView):
 
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(operation_summary="Retrieves items in the cart")
+    @swagger_auto_schema(operation_summary="Retrieve items in the cart", tags=["cart"])
     def get(self, request, *args, **kwargs):
         user_cart = Cart(request)
         if user_cart.cart:
             data = []
+
             for item in user_cart:
                 data.append(item)
+
             return Response(
                 {
                     "Cart items": data,
-                    "Items count": len(user_cart),
-                    "Total cost": user_cart.get_total_cost(),
+                    "Total items": len(user_cart),
+                    "Total cost": f"${user_cart.get_total_cost()}",
                 },
                 status=status.HTTP_200_OK,
             )
+
         return Response({"message": "Your cart is empty"}, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="Creates an order from user's cart if 'save_for_later' is true",
+        operation_summary="Create an order from user's cart items",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=["save_for_later"],
+            required=["action"],
             properties={
-                "save_for_later": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                "action": openapi.Schema(type=openapi.TYPE_STRING),
             },
-            example={"save_for_later": "true"},
+            example={"action": "create_order"},
         ),
         responses={201: OrderSerializer, 400: "Bad request"},
+        tags=["cart"]
     )
-    @method_decorator(login_required(login_url="/api/v1/api-auth/login/"))
-    def post(self, request, *args, **kwargs):
-        data = request.data
-        action = data.get("save_for_later", False)
+    @method_decorator(login_required(login_url="/auth/login/"))
+    def post(self, request):
+        action = request.data.get("action")
         user_cart = Cart(request)
-        if action:
-            if len(user_cart) > 0:
-                order = Order.objects.create(customer=request.user)
-                for item in user_cart:
-                    product = Product.objects.get(name=item["product"])
-                    OrderItem.objects.create(
-                        order=order,
-                        product=product,
-                        quantity=item.get("quantity", 1),
-                        cost_per_item=item.get("price", product.price),
-                    )
-                user_cart.clear()
-                return Response(
-                    {
-                        "success": f"Your Order has been saved and your Order ID is {order.id}."
-                    },
-                    status=status.HTTP_201_CREATED,
+
+        if action and len(user_cart) <= 0:
+            return Response(
+                {"error": "Can't create an order. Your cart is empty"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if action == "create_order":
+            order = Order.objects.create(customer=request.user)
+
+            for item in user_cart:
+                product = Product.objects.get(name=item["product"])
+                OrderItem.objects.create(
+                    order=order,
+                    product=product,
+                    quantity=item.get("quantity"),
+                    cost_per_item=item.get("price"),
                 )
-            else:
-                return Response(
-                    {"error": "Can't create an order. Your cart is empty"},
-                    status=status.HTTP_400_BAD_REQUEST,
+
+            user_cart.clear()
+            context = {"request": request}
+            serializer = OrderSerializer(order, context=context)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        elif action == "save":
+            order = Order.objects.create(customer=request.user)
+
+            for item in user_cart:
+                product = Product.objects.get(name=item["product"])
+                OrderItem.objects.create(
+                    order=order,
+                    product=product,
+                    quantity=item.get("quantity"),
+                    cost_per_item=item.get("price"),
                 )
-        return Response(
-            {"save_for_later": ["This field is required"]},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+
+            user_cart.clear()
+            return Response(
+                {
+                    "success": f"Your Order has been saved and your Order ID is {order.id}."
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        else:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
     @swagger_auto_schema(
-        operation_summary="Updates an item in the cart",
+        operation_summary="Update an item in the cart",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             required=["product_name", "quantity"],
@@ -91,22 +113,22 @@ class CartView(APIView):
                 "product_name": openapi.Schema(type=openapi.TYPE_STRING),
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
             },
-            example={"product_name": "new quantity"},
+            example={"product_name": 32},
         ),
+        tags=["cart"]
     )
-    def put(self, request, *args, **kwargs):
-        """
-        Updates an item in the cart with a new quantity if the product exists in the cart
-        """
-        data = request.data
+    def put(self, request):
         user_cart = Cart(request)
-        for key, value in data.items():
+
+        for key, value in request.data.items():
             product = get_object_or_404(Product, name=key)
+
             if str(product.id) in user_cart.cart.keys():
                 user_cart.update_item(product, quantity=value)
                 return Response(
                     {"message": "Cart updated"}, status=status.HTTP_200_OK
                 )
+
             else:
                 return Response(
                     {"message": "This item is not in your cart"},
@@ -114,36 +136,37 @@ class CartView(APIView):
                 )
 
     @swagger_auto_schema(
-        operation_summary="Removes an item from cart or clears the cart",
+        operation_summary="Remove an item from cart or clear the cart",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 "product_name": openapi.Schema(type=openapi.TYPE_STRING),
             },
-            example={"product_name": ""},
+            example={"product_name": "Wireless Keyboard"},
         ),
+        tags=["cart"]
     )
-    def delete(self, request, *args, **kwargs):
-        """
-        Removes an item from the cart if item is specified in request body, else the cart will be cleared
-        """
-        data = request.data
+    def delete(self, request):
         user_cart = Cart(request)
-        if data:
-            for key in data.keys():
-                product = get_object_or_404(Product, name=key)
-                removed = user_cart.remove_item(product)
-                if removed:
-                    return Response(
-                        {"message": "Item has been removed from cart"},
-                        status=status.HTTP_204_NO_CONTENT,
-                    )
-                else:
-                    return Response(
-                        {"message": "This item is not in your cart"},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-        user_cart.clear()
-        return Response(
-            {"message": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT
-        )
+
+        if not request.data:
+            user_cart.clear()
+            return Response(
+                {"message": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT
+            )
+
+        for key in request.data.keys():
+            product = get_object_or_404(Product, name=key)
+            removed = user_cart.remove_item(product)
+
+            if removed:
+                return Response(
+                    {"message": "Item has been removed from cart"},
+                    status=status.HTTP_204_NO_CONTENT,
+                )
+
+            else:
+                return Response(
+                    {"message": "This item is not in your cart"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )

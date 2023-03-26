@@ -6,6 +6,12 @@ from vendors.models import Vendor
 
 
 # Create your models here.
+def get_sentinel_user():
+    user_detail = {"first_name":"None", "last_name":"None", "email":"user@none.com"}
+    user = Customer.objects.create(**user_detail)
+    return user
+
+
 class Category(models.Model):
 
     name = models.CharField(max_length=50, db_index=True)
@@ -59,7 +65,7 @@ class Product(models.Model):
 
 class Review(models.Model):
 
-    user = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    user = models.ForeignKey(Customer, on_delete=models.SET(get_sentinel_user))
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="reviews")
     review = models.TextField()
     created = models.DateTimeField(auto_now_add=True)

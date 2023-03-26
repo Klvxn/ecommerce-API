@@ -15,7 +15,10 @@ class ReviewSerializer(serializers.ModelSerializer):
 class ProductsSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
-    vendor = serializers.HyperlinkedRelatedField(view_name="vendor-detail", lookup_field="slug", read_only=True)
+    price = serializers.SerializerMethodField(read_only=True)
+    vendor = serializers.HyperlinkedRelatedField(
+        view_name="vendor-detail", lookup_field="slug", read_only=True
+    )
     
     class Meta:
         model = Product
@@ -29,6 +32,9 @@ class ProductsSerializer(serializers.ModelSerializer):
             "price",
             "sold",
         ]
+
+    def get_price(self, obj):
+        return f"${obj.price}"
 
 
 class ProductInstanceSerializer(ProductsSerializer):
@@ -46,6 +52,7 @@ class ProductInstanceSerializer(ProductsSerializer):
 class SimpleProductSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
+    price = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
@@ -54,3 +61,6 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "category",
             "price",
         ]
+
+    def get_price(self, obj):
+        return f"${obj.price}"

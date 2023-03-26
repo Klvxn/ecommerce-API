@@ -1,8 +1,7 @@
-import json
-
-import braintree
+import braintree, json
 from django.conf import settings
 from django.template.response import TemplateResponse
+from drf_yasg.utils import swagger_auto_schema
 from rest_framework import exceptions, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -30,7 +29,8 @@ class Payment(APIView):
         except Order.DoesNotExist:
             raise exceptions.NotFound("Order with ID not found")
 
-    def get(self, request, pk, *args, **kwargs):
+    @swagger_auto_schema(tags=["payment"])
+    def get(self, request, pk):
         order = self.get_object(request, pk)
         serializer = SimpleOrderSerializer(order)
         data = serializer.data
@@ -40,7 +40,8 @@ class Payment(APIView):
         context = {"client_token": client_token, "order": data.items()}
         return TemplateResponse(request, "payment.html", context)
 
-    def post(self, request, pk, *args, **kwargs):
+    @swagger_auto_schema(tags=["payment"])
+    def post(self, request, pk):
         order = self.get_object(request, pk)
         customer = order.customer
         address = order.address
@@ -66,18 +67,23 @@ class Payment(APIView):
                 },
             }
         )
+
         if result.is_success:
             order.status = "paid"
             order.save()
+
             for item in order.order_items.all().select_related('product'):
                 queryset = Product.objects.filter(id=item.product_id)
                 queryset.update(stock=item.product.stock - item.quantity, sold=item.quantity)
+
                 for obj in queryset:
                     obj.save()
+
             write_to_csv(order, customer, result.transaction.id)
             return Response(
                 {"success": "Payment was successful"}, status=status.HTTP_200_OK
             )
+
         return Response(
             {"error": f"{result.message}"}, status=status.HTTP_502_BAD_GATEWAY
         )

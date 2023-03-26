@@ -18,8 +18,10 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include, re_path
 from drf_yasg.views import get_schema_view
+from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from rest_framework import permissions, schemas
+from rest_framework import permissions, response, reverse, schemas
+from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
@@ -35,10 +37,13 @@ schema_view = get_schema_view(
     permission_classes=[permissions.AllowAny],
 )
 
+auth_urls = [
+    path("", include("rest_framework.urls")),
+    path("token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+]
+
 urls = [
-    path("api-auth/", include("rest_framework.urls")),
-    path("api-auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api-auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("", include("cart.urls")),
     path("", include("customers.urls")),
     path("", include("orders.urls")),
@@ -68,12 +73,29 @@ swagger_urls = [
     re_path(r"^redoc/$", schema_view.with_ui("redoc", cache_timeout=0), name="schema-redoc"),
 ]
 
-urls += swagger_urls
 
 urlpatterns = [
     path("__debug__/", include("debug_toolbar.urls")),
     path("admin/", admin.site.urls),
-    path("api/v1/", include(urls))
+    path("auth/", include(auth_urls)),
+    path("api/v1/", include(urls)),
+    path("", include(swagger_urls)),
 ]
 
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+
+class APIRoot(APIView):
+
+    permission_classes = [permissions.AllowAny]
+
+    @swagger_auto_schema(operation_summary="API Root", tags=["/"])
+    def get(self, request, format=None):
+        return  response.Response({
+            "products": reverse.reverse("products", request=request, format=format),
+            "vendors": reverse.reverse("vendor-list", request=request, format=format),
+            "cart": reverse.reverse("cart", request=request, format=format),
+        })
+
+
+urlpatterns.append(path("", APIRoot.as_view()))
