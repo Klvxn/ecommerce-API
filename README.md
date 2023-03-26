@@ -1,17 +1,20 @@
 ## e-commerce API
-Using django/django rest framework to design an e-commerce API using Braintree as payment gateaway for credit card purchases.
+A RESTful API for an e-commerce platform that allows customers browse through products, add products to their shopping cart, place orders for those products and purchase them. The API comes with endpoints for managing orders, product reviews, authentication and authorization. It also supports pagination, filtering, etc.
 
-The API includes 
-1. JWT Authentication 
+
+Some features include
+1. JWT Authentication and authorization
+2. Optimized database queries
 2. Interactive Swagger documentation
-3. Braintree payment gateway integration
+3. Braintree payment integration
 4. Debug toolbar and more...
 
 
-### Requirements
-1. Python
-2. Django
-3. Django Rest Framework
+### Stack
+1. Python 3.10
+2. Django 4.1.2
+3. Django Rest Framework 3.14.0
+4. PostgreSQL 12
 
 
 ### Setup
@@ -20,72 +23,82 @@ Clone the repository using the git command
 git clone https://github.com/klvxn/ecommerce-API
 ```
 
-Enter into the project's root directory
+Navigate into the project's root directory
 ```
 cd ecommerce-API
 ```
 
-Build the docker images and start the containers
+Build the docker images 
+```
+docker-compose build
+```
+Run the docker containers
 ```
 docker-compose up
 ```
-The API will be ready at localhost:8000
+<br>
+
+The API will be ready at: `http://localhost:8000/` <br>
+
+Access the documentation at: `http://localhost:8000/swagger/`
+<br>
+<br>
 
 
-### API Endpoints 
-The various endpoints for the API.
-Assuming the local server is running at http://localhost:8000
+### API Endpoints Overview
+Here are some of the endpoints. <br>
+Assuming the local server is running at `http://localhost:8000` 
 
+<br>
 
 #### Authentication
 Create a user account
 ```
 POST http://localhost:8000/api/v1/customers/
 
-Request body
-{
-    "email": "admin@django.com",
-    "first_name": "Django",
-    "last_name": "Admin",
-    "date_of_birth": "2022-10-15",
-    "password": "djangorest",
-    "password2": "djangorest"
-}
+REQUEST BODY
+    {
+        "email": "admin@django.com",
+        "first_name": "Django",
+        "last_name": "Admin",
+        "date_of_birth": "2022-10-15",
+        "password": "djangorest",
+        "password2": "djangorest"
+    }
 ```
+<BR> 
 
-Login into user account
+Create access and refresh tokens
 ```
-POST http://localhost:8000/api/v1/api-auth/login/
+POST http://localhost:8000/api/v1/auth/token/
 
-Request body 
-{
-    "email": "admin@django.com",
-    "password": "djangorest"
-}
+REQUEST BODY 
+    {
+        "email": "admin@django.com",
+        "password": "djangorest"
+    }
 ```
+<br> 
 
 Logout of user account
 ```
-POST http://localhost:8000/api/v1/api-auth/logout/
+POST http://localhost:8000/api/v1/auth/logout/
 ```
+<br>
 
-Retrieve access token for user
-```
-POST http://localhost:8000/api/v1/api-auth/token/
-
-Request body 
-{
-    "email": "admin@django.com",
-    "password": "djangorest"
-}
-```
-
-Refresh access token for user
+Refresh access token
 ```
 POST http://localhost:8000/api/v1/api-auth/token/refresh/
+
+REQUEST BODY 
+
+    {"refresh": "your_refresh_token"}
 ```
 
-#### Products 
+<br>
+
+
+#### Products Endpoints
 Retrieve all products or a single product
 ```
 GET http://localhost:8000/api/v1/products/
@@ -94,115 +107,147 @@ GET http://localhost:8000/api/v1/products/
 GET http://localhost:8000/api/v1/products/{id}
 ```
 
+<br>
+
 Add a product with Id to cart
 ```
 POST http://localhost:8000/api/v1/products/{Id}/
 
-Request body
-{
-    "quantity": 3
-}
+REQUEST BODY
+
+    {"quantity": 3}
 ```
+
+<br>
 
 Remove a product from cart 
 ```
 DELETE http://localhost:8000/api/v1/products/{Id}/
 ```
+<br>
 
 
-#### Cart 
-Retrieve cart
+#### Shopping Cart Endpoints
+Retrieve items in shopping cart
 ```
-GET http://localhost:8000/api/v1/cart/
+GET http://localhost:8000/api/v1/shopping-cart/
 ```
 
-Create an order from user's cart if the user wants to save it for later
+<br>
+
+Create an order from user's cart items
 ```
-POST http://localhost:8000/api/v1/cart/
+POST http://localhost:8000/api/v1/shopping-cart/
+
+REQUEST BODY
+
+    {"action": "create_order"}
 ```
+<br>
 
 Update an item in cart
 ```
-PUT http://localhost:8000/api/v1/cart/
+PUT http://localhost:8000/api/v1/shopping-cart/
 
-Request body 
-{
-    "product_name": 7 (new quantity)
-}
+REQUEST BODY 
+
+    {"product_name": 7}
 ```
+<br>
 
-Remove an item from cart
+Remove an item from cart <br>
+if request body is empty, cart will be cleared.
 ```
 DELETE http://localhost:8000/api/v1/cart/
 
-Request body 
-{
-    "product_name": ""
-}
-if request body is empty, cart will be cleared.
+REQUEST BODY    
+
+    {"product_name": ""}
 ```
+<br>
 
 
-#### Orders 
+#### Orders Endpoints
 Retrieve all orders or a single order
 ```
 GET http://localhost:8000/api/v1/orders/
 
 GET http://localhost:8000/api/v1/orders/{id}
 ```
+<br>
 
-Create an order from user's cart
+Update an order with a new address
 ```
-POST http://localhost:8000/api/v1/orders/
+PUT http://localhost:8000/api/v1/orders/{id}/
 
-Request body
-{
-    "street_address": "Somewhere you live",
-    "postal_code": 012345,
-    "city": "New Genius",
-    "state": "Your state",
-    "country": "Your country",
-}
+REQUEST BODY
+    {
+        "street_address": "Somewhere you live",
+        "postal_code": 012345,
+        "city": "New Genius",
+        "state": "Your state",
+        "country": "Your country",
+    }
 ```
+
+<BR>
 
 Delete an order
 ```
 DELETE http://localhost:8000/api/v1/orders/{id}/
 ```
+<BR>
 
 
-#### Payment
+
+#### Payment Endpoints
 Retrieve the template to input payment method details
 ```
-GET http://localhost:8000/api/v1/checkout/order/{id}/make-payment/
+GET http://localhost:8000/api/v1/checkout/order/{id}/
 ```
 
 Process payment for an order
 ```
 POST http://localhost:8000/api/v1/checkout/order/{id}/make-payment/
 
-Request body
-{  
-    5555 5555 5555 4444 
-    02/24
-}
+REQUEST BODY
+    {  
+        5555 5555 5555 4444 
+        02/24
+    }
 ```
+<BR>
+
 Paid orders are exported to a csv file.
 If you get an error (e.g. processor declined) while testing payments, check the **[Braintree docs](https://developer.paypal.com/braintree/docs/reference/general/testing/python)**
 
 ![(Un)Successful payments in Braintree dashboard](/assets/braintree_dashboard.jpg)
 
-### Docs 
-The documentation for the API and the rest of it's endpoints are available at:
 
-```
-http://localhost:8000/api/v1/swagger/
-```
+<br>
+
 ### Schema 
 
 ```
 http://localhost:8000/api/v1/openapi/
 ```
 
+<br>
+
+### Docs 
+The documentation for the API and the rest of it's endpoints are available at:
+
+```
+http://localhost:8000/swagger/
+```
 ![Swagger Documentation](/assets/swagger_docs.png)
 
+<BR>
+
+### License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+<br>
+
+### Support
+If you have any questions or issues with the API, please contact me at [akpulukelvin@gmail.com](mailto:akpulukelvin@gmail.com).
