@@ -56,6 +56,7 @@ INSTALLED_APPS = [
 
     # Third party apps
     'debug_toolbar',
+    'django_filters',
     'drf_yasg',
     'rest_framework',
 ]
@@ -99,10 +100,10 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': os.environ['DB_NAME'],
-        # 'USER': os.environ['POSTGRES_USER'],
-        # 'PASSWORD': os.environ['POSTGRES_PASSWORD'],
-        # 'HOST': os.environ['DB_HOST'],
-        # 'PORT': os.environ['DB_PORT'],
+        'USER': os.environ['POSTGRES_USER'],
+        'PASSWORD': os.environ['POSTGRES_PASSWORD'],
+        'HOST': os.environ['DB_HOST'],
+        'PORT': os.environ['DB_PORT'],
     }
 }
 
@@ -155,8 +156,8 @@ AUTH_USER_MODEL = 'customers.Customer'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.BasicAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated'
@@ -164,6 +165,10 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     'PAGE_SIZE': 10,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter'
+    ]
 }
 
 

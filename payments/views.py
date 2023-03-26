@@ -22,16 +22,16 @@ class Payment(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get_object(self, request, pk):
+    def get_object(self, pk):
         try:
-            order = Order.objects.select_related("customer", "address").get(customer=request.user, pk=pk)
+            order = Order.objects.select_related("customer", "address").get(customer=self.request.user, pk=pk)
             return order
         except Order.DoesNotExist:
             raise exceptions.NotFound("Order with ID not found")
 
     @swagger_auto_schema(tags=["payment"])
     def get(self, request, pk):
-        order = self.get_object(request, pk)
+        order = self.get_object(pk)
         serializer = SimpleOrderSerializer(order)
         data = serializer.data
         data["address"] = json.dumps(data["address"])
@@ -42,7 +42,7 @@ class Payment(APIView):
 
     @swagger_auto_schema(tags=["payment"])
     def post(self, request, pk):
-        order = self.get_object(request, pk)
+        order = self.get_object(pk)
         customer = order.customer
         address = order.address
         total_cost = order.get_total_cost()

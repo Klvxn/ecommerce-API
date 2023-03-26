@@ -17,9 +17,10 @@ class OrdersList(GenericAPIView, LimitOffsetPagination):
 
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
+    filterset_fields = ['status']
 
-    def get_queryset(self, request):
-        return Order.objects.filter(customer=request.user)
+    def get_queryset(self):
+        return Order.objects.filter(customer=self.request.user)
 
     @swagger_auto_schema(
         operation_summary="Get all orders by a customer",
@@ -29,7 +30,7 @@ class OrdersList(GenericAPIView, LimitOffsetPagination):
         tags=["orders"],
     )
     def get(self, request):
-        orders = self.get_queryset(request)
+        orders = self.get_queryset()
         page = self.paginate_queryset(orders)
         query = request.query_params.get("status")
 
@@ -49,11 +50,11 @@ class OrderInstance(GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
 
-    def get_queryset(self, request):
-        return Order.objects.filter(customer=request.user)
+    def get_queryset(self):
+        return Order.objects.filter(customer=self.request.user)
 
-    def get_object(self, request, pk):
-        order = self.get_queryset(request).filter(pk=pk).first()
+    def get_object(self, pk):
+        order = self.get_queryset().filter(pk=pk).first()
 
         if order is None:
             raise exceptions.NotFound(
@@ -67,7 +68,7 @@ class OrderInstance(GenericAPIView):
         tags=["orders"],
     )
     def get(self, request, pk):
-        order = self.get_object(request, pk)
+        order = self.get_object(pk)
         serializer = self.get_serializer(order)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -78,7 +79,7 @@ class OrderInstance(GenericAPIView):
         tags=["orders"],
     )
     def put(self, request, pk):
-        order = self.get_object(request, pk)
+        order = self.get_object(pk)
         data = {"address": request.data}
         serializer = self.get_serializer(order, data=data)
 
@@ -93,7 +94,7 @@ class OrderInstance(GenericAPIView):
         tags=["orders"],
     )
     def delete(self, request, pk):
-        order = self.get_object(request, pk)
+        order = self.get_object(pk)
         order.delete()
         return Response(
             {"message": "Order has been deleted"}, status=status.HTTP_204_NO_CONTENT

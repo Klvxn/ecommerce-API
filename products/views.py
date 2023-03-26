@@ -1,4 +1,3 @@
-from django.db.models import Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework import exceptions, status
@@ -15,9 +14,15 @@ from .serializers import ProductInstanceSerializer, ProductsSerializer
 # Create your views here.
 class ProductsList(GenericAPIView, LimitOffsetPagination):
 
-    queryset = Product.objects.filter(available=True)
     permission_classes = [AllowAny]
     serializer_class = ProductsSerializer
+    filterset_fields = ['category', 'available', 'vendor']
+    search_fields = ['name', 'category__name', 'label', 'vendor__brand_name']
+
+    def get_queryset(self):
+        queryset = Product.objects.all()
+        queryset = self.filter_queryset(queryset)
+        return queryset
 
     @swagger_auto_schema(
         operation_summary="Get all available products",
@@ -30,43 +35,37 @@ class ProductsList(GenericAPIView, LimitOffsetPagination):
         tags=["products"],
     )
     def get(self, request, slug=None):
-        available_products = self.get_queryset()
-        page = self.paginate_queryset(available_products)
-        query = request.query_params.get("search")
+        products = self.get_queryset()
+        page = self.paginate_queryset(products)
 
-        if query is not None:
-            page = self.paginate_queryset(available_products.filter(
-                    Q(name__icontains=query) | Q(category__name__icontains=query)
-            ))
-
-        elif slug:
+        if slug:
             page = self.paginate_queryset(
-                available_products.filter(category__slug=slug)
+                products.filter(category__slug=slug)
             )
 
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(available_products, many=True)
+        serializer = self.get_serializer(products, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ProductInstance(GenericAPIView):
 
-    queryset = Product.objects.filter(available=True)
+    queryset = Product.objects.all()
     permission_classes = [AllowAny]
     serializer_class = ProductInstanceSerializer
 
-    def get_object(self, pk):
+    def get_object(self):
         try:
-            return self.get_queryset().filter(pk=pk)
+            return super().get_object()
         except Product.DoesNotExist:
             raise exceptions.NotFound({"error": "Product not found."})
 
     @swagger_auto_schema(operation_summary="Retrieve a product", tags=["products"])
     def get(self, request, pk):
-        product = self.get_object(pk=pk)
+        product = self.get_object()
         serializer = self.get_serializer(product)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -83,7 +82,7 @@ class ProductInstance(GenericAPIView):
         tags=["products"],
     )
     def post(self, request, pk):
-        product = self.get_object(pk=pk)
+        product = self.get_object()
         user_cart = Cart(request)
         quantity = request.data.get("quantity")
 
@@ -103,7 +102,7 @@ class ProductInstance(GenericAPIView):
         operation_summary="Delete a product from cart", tags=["products"]
     )
     def delete(self, request, pk):
-        product = self.get_object(pk=pk)
+        product = self.get_object()
         user_cart = Cart(request)
         deleted = user_cart.remove_item(product)
 
