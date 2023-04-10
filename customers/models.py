@@ -23,10 +23,11 @@ class Customer(AbstractUser):
 
     email = models.EmailField(("email address"), max_length=254, unique=True, db_index=True)
     slug = autoslug.AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
-    date_of_birth = models.DateField(("date of birth"), null=True)
+    date_of_birth = models.DateField(null=True)
     address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)
     total_items_bought = models.PositiveIntegerField(null=True, default=0)
     products_bought = models.ManyToManyField("products.Product")
+    is_vendor = models.BooleanField(default=False)
     
     username = None
 

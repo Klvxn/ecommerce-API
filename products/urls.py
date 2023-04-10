@@ -1,28 +1,28 @@
 from django.urls import path
 
-from .views import ProductInstance, ProductsList, ReviewActions, ReviewInstance
-
+from .views import (
+    ProductCartView,
+    ProductsListView,
+    ReviewActions,
+    ReviewInstance,
+    ProductCRUDView,
+)
 
 urlpatterns = [
-    path("products/categories/<slug:slug>/", ProductsList.as_view()),
-    path("products/", ProductsList.as_view(), name="products"),
-    path("products/<int:pk>/", ProductInstance.as_view(http_method_names=["get"])),
-    path("products/<int:pk>/add/", ProductInstance.as_view(http_method_names=["post"])),
-    path("products/<int:pk>/remove/", ProductInstance.as_view(http_method_names=["delete"])),
+    path("products/", ProductsListView.as_view(), name="products"),
+    path("products/categories/<slug:slug>/", ProductsListView.as_view()),
+    path("products/create/", ProductCRUDView.as_view(http_method_names=["post"])),
     path(
-        "products/<int:product_id>/customer-reviews/",
-        ReviewActions.as_view(http_method_names=["get", "post"])
+        "products/<int:pk>/",
+        ProductCRUDView.as_view(http_method_names=["get", "put", "delete"]),
+    ),
+    path("products/<int:pk>/cart/action/", ProductCartView.as_view()),
+    path(
+        "products/<int:product_id>/reviews/",
+        ReviewActions.as_view(),
     ),
     path(
-        "products/<int:product_id>/customer-reviews/<int:review_id>/",
-        ReviewInstance.as_view(http_method_names=["get"])
-    ),
-    path(
-        "products/<int:product_id>/customer-reviews/<int:review_id>/update/",
-        ReviewInstance.as_view(http_method_names=["put"])
-    ),
-    path(
-        "products/<int:product_id>/customer-reviews/<int:review_id>/delete/",
-        ReviewInstance.as_view(http_method_names=["delete"])
+        "products/<int:product_id>/reviews/<int:review_id>/",
+        ReviewInstance.as_view(),
     ),
 ]

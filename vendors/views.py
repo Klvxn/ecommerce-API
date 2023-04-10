@@ -11,6 +11,8 @@ from .serializers import VendorSerializer, VendorInstanceSerializer
 
 # Create your views here.
 class VendorViewSet(ModelViewSet):
+
+    http_method_names = ["get", "post", "put", "delete"]
     lookup_field = "slug"
     queryset = Vendor.objects.all()
     permission_classes = [VendorOnly, IsAuthenticated]
@@ -20,7 +22,7 @@ class VendorViewSet(ModelViewSet):
         if self.action == "create":
             permission_classes = [IsAuthenticated]
 
-        elif self.action in ["update", "partial_update", "destroy"]:
+        elif self.action in ["update", "destroy"]:
             permission_classes = [VendorOnly]
 
         else:
@@ -65,10 +67,6 @@ class VendorViewSet(ModelViewSet):
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    @swagger_auto_schema(operation_summary="Partial update a vendor", tags=["vendors"])
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, args, kwargs)
 
     @swagger_auto_schema(operation_summary="Delete a vendor", tags=["vendors"])
     def destroy(self, request, *args, **kwargs):

@@ -11,7 +11,7 @@ from .serializers import CustomerSerializer, CustomerUpdateSerializer
 
 
 # Create your views here.
-class CustomerCreate(CreateAPIView):
+class CustomerCreateView(CreateAPIView):
 
     queryset = Customer.objects.all()
     permission_classes = [AllowAny]
@@ -22,8 +22,9 @@ class CustomerCreate(CreateAPIView):
         return super().create(request, args, kwargs)
 
 
-class CustomerInstance(RetrieveUpdateDestroyAPIView):
+class CustomerInstanceView(RetrieveUpdateDestroyAPIView):
 
+    http_method_names = ["get", "post", "put", "delete"]
     queryset = Customer.objects.all()
     lookup_field = "pk"
     permission_classes = [CustomerOnly]
@@ -41,13 +42,6 @@ class CustomerInstance(RetrieveUpdateDestroyAPIView):
 
     @swagger_auto_schema(operation_summary="Update a customer", tags=["customers"])
     def put(self, request, *args, **kwargs):
-        self.check_object_permissions(request, self.get_object())
-        return super().update(request, args, kwargs)
-
-    @swagger_auto_schema(
-        operation_summary="Partial update a customer", tags=["customers"]
-    )
-    def patch(self, request, *args, **kwargs):
         self.check_object_permissions(request, self.get_object())
         return super().update(request, args, kwargs)
 

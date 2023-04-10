@@ -6,19 +6,26 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import LimitOffsetPagination
+
 from cart.cart import Cart
+from vendors.permissions import VendorCreateOnly, VendorOnly
 
 from .models import Product
-from .serializers import ProductInstanceSerializer, ProductReviewSerializer, ProductsSerializer
+from .serializers import (
+    ProductInstanceSerializer,
+    ProductReviewSerializer,
+    ProductsListSerializer,
+    ProductCreateUpdateSerializer,
+)
 
 
 # Create your views here.
-class ProductsList(GenericAPIView, LimitOffsetPagination):
+class ProductsListView(GenericAPIView, LimitOffsetPagination):
 
     permission_classes = [AllowAny]
-    serializer_class = ProductsSerializer
-    filterset_fields = ['category', 'available', 'vendor']
-    search_fields = ['name', 'category__name', 'label', 'vendor__brand_name']
+    serializer_class = ProductsListSerializer
+    filterset_fields = ["category", "available", "vendor"]
+    search_fields = ["name", "category__name", "label", "vendor__brand_name"]
 
     def get_queryset(self):
         queryset = Product.objects.all()
@@ -32,7 +39,7 @@ class ProductsList(GenericAPIView, LimitOffsetPagination):
                 name="search", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING
             )
         ],
-        responses={200: ProductsSerializer(many=True)},
+        responses={200: ProductsListSerializer(many=True)},
         tags=["products"],
     )
     def get(self, request, slug=None):
@@ -40,9 +47,7 @@ class ProductsList(GenericAPIView, LimitOffsetPagination):
         page = self.paginate_queryset(products)
 
         if slug:
-            page = self.paginate_queryset(
-                products.filter(category__slug=slug)
-            )
+            page = self.paginate_queryset(products.filter(category__slug=slug))
 
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -52,23 +57,77 @@ class ProductsList(GenericAPIView, LimitOffsetPagination):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProductInstance(GenericAPIView):
+class ProductCRUDView(GenericAPIView):
+    """
+    Includes operation to create, retrieve, update and delete a product.
+
+    The `create`, `update`, and `delete` operations are permitted to vendors only
+    """
 
     queryset = Product.objects.all()
-    permission_classes = [AllowAny]
-    serializer_class = ProductInstanceSerializer
+    permission_classes = [IsAuthenticated, VendorOnly]
 
-    def get_object(self):
-        try:
-            return super().get_object()
-        except Product.DoesNotExist:
-            raise exceptions.NotFound({"error": "Product not found."})
+    def get_permissions(self):
+        if self.request.method == "GET":
+            permission_classes = [AllowAny]
+        elif self.request.method == "POST":
+            permission_classes = [VendorCreateOnly]
+        else:
+            permission_classes = self.permission_classes
+        return [permission() for permission in permission_classes]
+
+    def get_serializer_class(self):
+        if self.request.method == "GET":
+            serializer_class = ProductInstanceSerializer
+        else:
+            serializer_class = ProductCreateUpdateSerializer
+        return serializer_class
 
     @swagger_auto_schema(operation_summary="Retrieve a product", tags=["products"])
     def get(self, request, pk):
         product = self.get_object()
         serializer = self.get_serializer(product)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(operation_summary="Create a product", tags=["products"])
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid(raise_exception=True):
+            serializer.save(vendor=request.user.vendor)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @swagger_auto_schema(operation_summary="Update a product", tags=["products"])
+    def put(self, request, pk):
+        product = self.get_object()
+        serializer = self.get_serializer(instance=product)
+        serializer.update(product, request.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @swagger_auto_schema(operation_summary="Delete a product", tags=["products"])
+    def delete(self, request, pk):
+        product = self.get_object()
+        product.delete()
+        return Response(
+            {"message": "Product deleted"}, status=status.HTTP_204_NO_CONTENT
+        )
+
+
+class ProductCartView(GenericAPIView):
+    """
+    Operations for adding, updating or removing a product from a user's cart.
+    """
+
+    queryset = Product.objects.all()
+    permission_classes = [AllowAny]
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except Product.DoesNotExist:
+            raise exceptions.NotFound({"error": "Product not found."})
 
     @swagger_auto_schema(
         operation_summary="Add a product to cart",
@@ -132,9 +191,8 @@ class ReviewActions(GenericAPIView):
         return [permission() for permission in permission_classes]
 
     @swagger_auto_schema(
-        operation_summary="Get all product reviews",
-        extra_overrides="get",
-        tags=["reviews"]
+        operation_summary="Get all reviews for a product",
+        tags=["reviews"],
     )
     def get(self, request, product_id):
         product = get_object_or_404(Product, pk=product_id)
@@ -142,8 +200,7 @@ class ReviewActions(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="Add a product review",
-        tags=["reviews"]
+        operation_summary="Add a review for a product", tags=["reviews"]
     )
     def post(self, request, product_id):
         product = get_object_or_404(Product, pk=product_id)
@@ -151,8 +208,10 @@ class ReviewActions(GenericAPIView):
 
         if product not in customer.products_bought.all():
             return Response(
-                {"message": "You can't add a review for a product you didn't purchase."},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "message": "You can't add a review for a product you didn't purchase."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         serializer = self.get_serializer(data=request.data)
@@ -163,9 +222,7 @@ class ReviewActions(GenericAPIView):
                 {"message": "Review posted"}, status=status.HTTP_201_CREATED
             )
 
-        return Response(
-            {"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ReviewInstance(GenericAPIView):
@@ -184,18 +241,14 @@ class ReviewInstance(GenericAPIView):
         product = get_object_or_404(Product, pk=product_id)
         return product.reviews.get(pk=review_id)
 
-    @swagger_auto_schema(
-        operation_summary="Get a product's review",
-        tags=["reviews"]
-    )
+    @swagger_auto_schema(operation_summary="Get a product's review", tags=["reviews"])
     def get(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
         serializer = self.get_serializer(review)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="Update a product's review",
-        tags=["reviews"]
+        operation_summary="Update a product's review", tags=["reviews"]
     )
     def put(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
@@ -211,13 +264,10 @@ class ReviewInstance(GenericAPIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        return Response(
-            {"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
     @swagger_auto_schema(
-        operation_summary="Delete a product's review",
-        tags=["reviews"]
+        operation_summary="Delete a product's review", tags=["reviews"]
     )
     def delete(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)

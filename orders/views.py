@@ -79,6 +79,7 @@ class OrderInstance(GenericAPIView):
     def put(self, request, pk):
         order = self.get_object(pk)
         address_serializer = AddressSerializer(data=request.data)
+
         if address_serializer.is_valid(raise_exception=True):
             address = address_serializer.save()
             order.address = address

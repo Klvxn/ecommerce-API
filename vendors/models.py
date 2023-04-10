@@ -16,6 +16,11 @@ class Vendor(models.Model):
     def __str__(self):
         return self.brand_name
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.customer.is_vendor = True
+        self.customer.save()
+
     def products_count(self):
         return self.product_set.all().count()
 

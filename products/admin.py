@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
 
-from .models import Category, Product, Review, Vendor
+from .models import Category, Product, Review
 
 
 # Register your models here.
@@ -49,11 +49,3 @@ class ProductInline(admin.StackedInline):
     model = Product
     extra = 0
     raw_id_fields = ["vendor"]
-
-
-@admin.register(Vendor)
-class VendorAdmin(admin.ModelAdmin):
-
-    list_display = ["brand_name", "customer", "slug", "products_count"]
-    inlines = [ProductInline]
-    search_fields = ["brand_name"]

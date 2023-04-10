@@ -55,4 +55,4 @@ def send_order_confirmation_email(order_id):
     customer = order.customer
     subject = "Your Order Confirmation"
     message = render_to_string("order_confirmation_email.html", {"order_id": order_id})
-    send_mail(subject, message, "noreply@example.com", [customer.email])
+    send_mail(subject, message, "futureself@service.com", [customer.email])

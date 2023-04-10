@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from products.serializers import ProductsSerializer
+from products.serializers import ProductsListSerializer
 
 from .models import Vendor
 
@@ -19,7 +19,7 @@ class VendorSerializer(serializers.HyperlinkedModelSerializer):
 
 class VendorInstanceSerializer(serializers.HyperlinkedModelSerializer):
 
-    product_set = ProductsSerializer(many=True, required=False)
+    product_set = ProductsListSerializer(many=True, required=False)
     total_products_sold = serializers.ReadOnlyField(source="get_total_products_sold")
 
     class Meta:

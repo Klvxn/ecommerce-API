@@ -192,7 +192,9 @@ SWAGGER_SETTINGS = {
     'LOGOUT_URL': '/auth/logout/',
     'TAGS_SORTER': 'alpha',
     'PATH_IN_MIDDLE': True,
-    'DISPLAY_OPERATION_ID': False
+    'DISPLAY_OPERATION_ID': False,
+    'DOC_EXPANSION': False,
+    'DEEP_LINKING': True,
 }
 
 
