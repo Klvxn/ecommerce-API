@@ -3,13 +3,13 @@ from rest_framework import serializers
 from .models import Product, Review
 
 
-class ReviewSerializer(serializers.ModelSerializer):
+class ProductReviewSerializer(serializers.ModelSerializer):
 
     user = serializers.StringRelatedField()
 
     class Meta:
         model = Review
-        fields = ["user", "review"]
+        fields = ["id", "user", "review", "image_url", "created"]
 
 
 class ProductsSerializer(serializers.ModelSerializer):
@@ -23,6 +23,7 @@ class ProductsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
+            "id",
             "name",
             "category",
             "vendor",
@@ -57,6 +58,7 @@ class SimpleProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
+            "id",
             "name",
             "category",
             "price",

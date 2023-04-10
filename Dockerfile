@@ -1,12 +1,15 @@
-FROM python:3.10.4-slim
+FROM python:3.10.4-alpine
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-WORKDIR /src/api/
+WORKDIR /api
 
-COPY . /src/api/
+COPY requirements.txt /api
 
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt --no-cache-dir
 
-CMD gunicorn config.wsgi:application --bind 0.0.0.0:8000
+COPY . /api
+
+RUN python manage.py makemigrations && python manage.py migrate
+RUN python manage.py collectstatic

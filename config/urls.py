@@ -82,7 +82,7 @@ urlpatterns = [
     path("", include(swagger_urls)),
 ]
 
-urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 
 class APIRoot(APIView):
@@ -91,7 +91,7 @@ class APIRoot(APIView):
 
     @swagger_auto_schema(operation_summary="API Root", tags=["/"])
     def get(self, request, format=None):
-        return  response.Response({
+        return response.Response({
             "products": reverse.reverse("products", request=request, format=format),
             "vendors": reverse.reverse("vendor-list", request=request, format=format),
             "cart": reverse.reverse("cart", request=request, format=format),

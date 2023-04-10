@@ -1,15 +1,27 @@
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.utils.text import slugify
 
-from customers.models import Customer
 from vendors.models import Vendor
 
 
 # Create your models here.
+User = get_user_model()
+
+
 def get_sentinel_user():
-    user_detail = {"first_name":"None", "last_name":"None", "email":"user@none.com"}
-    user = Customer.objects.create(**user_detail)
-    return user
+    user_detail = {"first_name": "None", "last_name": "None", "email": "user@none.com"}
+    return User.objects.create_user(**user_detail)
+
+
+class BaseModel(models.Model):
+
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    # image = models.ImageField(upload_to="%(app_label)s_%(class)/")
+
+    class Meta:
+        abstract = True
 
 
 class Category(models.Model):
@@ -31,7 +43,7 @@ class Category(models.Model):
         return super().save(*args, **kwargs)
 
 
-class Product(models.Model):
+class Product(BaseModel):
 
     name = models.CharField(max_length=50, unique=True, db_index=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
@@ -41,10 +53,8 @@ class Product(models.Model):
     stock = models.PositiveIntegerField()
     sold = models.PositiveIntegerField(default=0)
     price = models.DecimalField(max_digits=6, decimal_places=2)
-    label = models.CharField(max_length=20, null=True, blank=True)
+    label = models.CharField(max_length=50, null=True, blank=True)
     available = models.BooleanField(default=False)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["category", "name"]
@@ -60,15 +70,17 @@ class Product(models.Model):
         return super().save(*args, **kwargs)
 
     def get_latest_reviews(self):
-        return self.reviews.values("user__email", "review", "created").order_by("-created")[:10]
-    
+        return self.reviews.values("id", "user__email", "review", "created").order_by("-created")[:10]
 
-class Review(models.Model):
 
-    user = models.ForeignKey(Customer, on_delete=models.SET(get_sentinel_user))
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="reviews")
+class Review(BaseModel):
+
+    user = models.ForeignKey(User, on_delete=models.SET(get_sentinel_user))
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="reviews"
+    )
     review = models.TextField()
-    created = models.DateTimeField(auto_now_add=True)
+    image_url = models.URLField(null=True)
 
     class Meta:
         get_latest_by = "created"

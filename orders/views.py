@@ -20,7 +20,9 @@ class OrdersList(GenericAPIView, LimitOffsetPagination):
     filterset_fields = ['status']
 
     def get_queryset(self):
-        return Order.objects.filter(customer=self.request.user)
+        queryset = Order.objects.filter(customer=self.request.user)
+        queryset = self.filter_queryset(queryset)
+        return queryset
 
     @swagger_auto_schema(
         operation_summary="Get all orders by a customer",
@@ -32,10 +34,6 @@ class OrdersList(GenericAPIView, LimitOffsetPagination):
     def get(self, request):
         orders = self.get_queryset()
         page = self.paginate_queryset(orders)
-        query = request.query_params.get("status")
-
-        if query is not None:
-            page = self.paginate_queryset(orders.filter(status=query))
 
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -73,21 +71,23 @@ class OrderInstance(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="Update an order with a new address.",
+        operation_summary="Update an order with an address.",
         request_body=AddressSerializer,
         responses={201: OrderSerializer, 400: "Bad Request"},
         tags=["orders"],
     )
     def put(self, request, pk):
         order = self.get_object(pk)
-        data = {"address": request.data}
-        serializer = self.get_serializer(order, data=data)
-
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
+        address_serializer = AddressSerializer(data=request.data)
+        if address_serializer.is_valid(raise_exception=True):
+            address = address_serializer.save()
+            order.address = address
+            order.save()
+            serializer = self.get_serializer(order)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(address_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
     @swagger_auto_schema(
         operation_summary="Delete an order by ID.",

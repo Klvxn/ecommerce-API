@@ -1,14 +1,15 @@
+from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework import exceptions, status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import LimitOffsetPagination
 from cart.cart import Cart
 
 from .models import Product
-from .serializers import ProductInstanceSerializer, ProductsSerializer
+from .serializers import ProductInstanceSerializer, ProductReviewSerializer, ProductsSerializer
 
 
 # Create your views here.
@@ -115,4 +116,118 @@ class ProductInstance(GenericAPIView):
         return Response(
             {"message": f"{product} is not in cart."},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+class ReviewActions(GenericAPIView):
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProductReviewSerializer
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = self.permission_classes
+        return [permission() for permission in permission_classes]
+
+    @swagger_auto_schema(
+        operation_summary="Get all product reviews",
+        extra_overrides="get",
+        tags=["reviews"]
+    )
+    def get(self, request, product_id):
+        product = get_object_or_404(Product, pk=product_id)
+        serializer = self.get_serializer(product.reviews.all(), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="Add a product review",
+        tags=["reviews"]
+    )
+    def post(self, request, product_id):
+        product = get_object_or_404(Product, pk=product_id)
+        customer = request.user
+
+        if product not in customer.products_bought.all():
+            return Response(
+                {"message": "You can't add a review for a product you didn't purchase."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid(raise_exception=True):
+            serializer.save(user=request.user, product=product)
+            return Response(
+                {"message": "Review posted"}, status=status.HTTP_201_CREATED
+            )
+
+        return Response(
+            {"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class ReviewInstance(GenericAPIView):
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProductReviewSerializer
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            permission_classes = [AllowAny]
+        else:
+            permission_classes = self.permission_classes
+        return [permission() for permission in permission_classes]
+
+    def get_product_review(self, product_id, review_id):
+        product = get_object_or_404(Product, pk=product_id)
+        return product.reviews.get(pk=review_id)
+
+    @swagger_auto_schema(
+        operation_summary="Get a product's review",
+        tags=["reviews"]
+    )
+    def get(self, request, product_id, review_id):
+        review = self.get_product_review(product_id, review_id)
+        serializer = self.get_serializer(review)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="Update a product's review",
+        tags=["reviews"]
+    )
+    def put(self, request, product_id, review_id):
+        review = self.get_product_review(product_id, review_id)
+
+        if request.user != review.user:
+            return Response(
+                {"message": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = self.get_serializer(instance=review, data=request.data)
+
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(
+            {"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    @swagger_auto_schema(
+        operation_summary="Delete a product's review",
+        tags=["reviews"]
+    )
+    def delete(self, request, product_id, review_id):
+        review = self.get_product_review(product_id, review_id)
+
+        if request.user != review.user:
+            return Response(
+                {"message": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        review.delete()
+        return Response(
+            {"message": "Review deleted"}, status=status.HTTP_204_NO_CONTENT
         )

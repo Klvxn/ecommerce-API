@@ -1,5 +1,6 @@
 asgiref==3.5.2
 braintree==4.17.0
+celery==5.2.7
 Django==4.1.2
 django-autoslug==1.9.8
 django-debug-toolbar==3.7.0
@@ -9,7 +10,8 @@ djangorestframework-simplejwt==5.2.1
 drf-writable-nested==0.7.0
 drf-yasg==1.21.4
 gunicorn==20.1.0
+PyYAML==6.0
+Pillow==9.5.0
 python-dotenv==0.21.0
 psycopg2-binary==2.9.4
-PyYAML==6.0
 uritemplate==4.1.1

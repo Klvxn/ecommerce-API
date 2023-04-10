@@ -68,9 +68,9 @@ REQUEST BODY
 ```
 <BR> 
 
-Create access and refresh tokens
+Create access token
 ```
-POST http://localhost:8000/api/v1/auth/token/
+POST http://localhost:8000/auth/token/
 
 REQUEST BODY 
     {
@@ -80,15 +80,15 @@ REQUEST BODY
 ```
 <br> 
 
-Logout of user account
+Logout user
 ```
-POST http://localhost:8000/api/v1/auth/logout/
+POST http://localhost:8000/auth/logout/
 ```
 <br>
 
 Refresh access token
 ```
-POST http://localhost:8000/api/v1/api-auth/token/refresh/
+POST http://localhost:8000/auth/token/refresh/
 
 REQUEST BODY 
 
@@ -111,7 +111,7 @@ GET http://localhost:8000/api/v1/products/{id}
 
 Add a product with Id to cart
 ```
-POST http://localhost:8000/api/v1/products/{Id}/
+POST http://localhost:8000/api/v1/products/{Id}/add/
 
 REQUEST BODY
 
@@ -122,7 +122,7 @@ REQUEST BODY
 
 Remove a product from cart 
 ```
-DELETE http://localhost:8000/api/v1/products/{Id}/
+DELETE http://localhost:8000/api/v1/products/{Id}/delete/
 ```
 <br>
 

@@ -11,7 +11,7 @@ from orders.models import Order
 from orders.serializers import SimpleOrderSerializer
 from products.models import Product
 
-from .utils import write_to_csv
+from .tasks import send_order_confirmation_email, write_trxn_to_csv
 
 
 # Create your views here.
@@ -73,13 +73,17 @@ class Payment(APIView):
             order.save()
 
             for item in order.order_items.all().select_related('product'):
-                queryset = Product.objects.filter(id=item.product_id)
-                queryset.update(stock=item.product.stock - item.quantity, sold=item.quantity)
+                product = Product.objects.filter(id=item.product_id)
+                product.update(stock=item.product.stock - item.quantity, sold=item.quantity)
+                customer.total_items_bought += item.quantity
+                customer.products_bought.add(product)
+                customer.save()
 
-                for obj in queryset:
+                for obj in product:
                     obj.save()
 
-            write_to_csv(order, customer, result.transaction.id)
+            send_order_confirmation_email.delay(order.id)
+            write_trxn_to_csv.delay(order, customer, result.transaction.id)
             return Response(
                 {"success": "Payment was successful"}, status=status.HTTP_200_OK
             )

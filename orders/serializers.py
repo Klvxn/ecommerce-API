@@ -22,7 +22,7 @@ class OrderItemSerializer(WritableNestedModelSerializer):
 
 class OrderSerializer(WritableNestedModelSerializer):
 
-    address = AddressSerializer(allow_null=True)
+    address = AddressSerializer()
     customer = serializers.StringRelatedField()
     order_items = OrderItemSerializer(many=True, required=False)
     url = serializers.HyperlinkedIdentityField(view_name="order-detail")
