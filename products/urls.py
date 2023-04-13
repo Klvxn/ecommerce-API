@@ -16,7 +16,7 @@ urlpatterns = [
         "products/<int:pk>/",
         ProductCRUDView.as_view(http_method_names=["get", "put", "delete"]),
     ),
-    path("products/<int:pk>/cart/action/", ProductCartView.as_view()),
+    path("products/<int:pk>/cart/", ProductCartView.as_view()),
     path(
         "products/<int:product_id>/reviews/",
         ReviewActions.as_view(),

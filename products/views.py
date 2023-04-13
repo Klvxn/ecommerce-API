@@ -10,7 +10,7 @@ from rest_framework.pagination import LimitOffsetPagination
 from cart.cart import Cart
 from vendors.permissions import VendorCreateOnly, VendorOnly
 
-from .models import Product
+from .models import Product, Review
 from .serializers import (
     ProductInstanceSerializer,
     ProductReviewSerializer,
@@ -239,7 +239,10 @@ class ReviewInstance(GenericAPIView):
 
     def get_product_review(self, product_id, review_id):
         product = get_object_or_404(Product, pk=product_id)
-        return product.reviews.get(pk=review_id)
+        try:
+            return product.reviews.get(pk=review_id)
+        except Review.DoesNotExist:
+            raise exceptions.NotFound({"error": "Review doesn't exist"})
 
     @swagger_auto_schema(operation_summary="Get a product's review", tags=["reviews"])
     def get(self, request, product_id, review_id):

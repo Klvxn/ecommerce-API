@@ -8,6 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from customers.serializers import AddressSerializer
 from orders.models import Order, OrderItem
 from orders.serializers import OrderSerializer
 from products.models import Product
@@ -64,8 +65,31 @@ class CartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        customer = request.user
+        order = Order.objects.create(customer=customer)
+
         if action == "create_order":
-            order = Order.objects.create(customer=request.user)
+
+            if not customer.address:
+                address = request.data.get("address")
+
+                if address is None:
+                    return Response(
+                        {"error": "Shipping address was not provided"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                serializer = AddressSerializer(data=address)
+
+                if serializer.is_valid(raise_exception=True):
+                    order.address = serializer.save()
+                    order.save()
+
+                else:
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            else:
+                order.address = customer.address
 
             for item in user_cart:
                 product = Product.objects.get(name=item["product"])
@@ -82,7 +106,6 @@ class CartView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         elif action == "save":
-            order = Order.objects.create(customer=request.user)
 
             for item in user_cart:
                 product = Product.objects.get(name=item["product"])

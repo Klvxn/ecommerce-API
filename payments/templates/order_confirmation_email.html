@@ -1,0 +1,30 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+    <link rel="stylesheet" href="/static/base.css">
+</head>
+<body>
+    <h3>Dear {{ order.customer.first_name|title }}</h3>
+    <h4>Your order with ID {{ order.id }} has been confirmed and processed for payment.</h4>
+    <div>
+        Here is the summary of your order <br>
+        Order ID: {{ order.id }} <br>
+        Order Recipient: {{ order.customer }} <br>
+        Shipping Address: {{ order.address }} <br>
+        {% for item in order.order_item %}
+            <ul>
+                <li>{{ item.product }}</li>
+                <li>{{ item.cost_per_item }}</li>
+                <li>{{ item.quantity }}</li>
+            </ul>
+        {% endfor %}
+        Total Cost: {{ order.get_total_cost }} 💵
+    </div>
+
+    <div>Thank you for shopping with us and we hope to see you purchase more products 😊</div>
+    <b>Don't forget to give your reviews on the products you purchased. 👍 </b>
+</body>
+</html>

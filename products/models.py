@@ -75,12 +75,20 @@ class Product(BaseModel):
 
 class Review(BaseModel):
 
+    class Ratings(models.IntegerChoices):
+        VERY_BAD = 1
+        UNSATISFIED = 2
+        JUST_THERE = 3
+        SATISFIED = 4
+        VERY_SATISFIED = 5
+
     user = models.ForeignKey(User, on_delete=models.SET(get_sentinel_user))
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="reviews"
     )
     review = models.TextField()
     image_url = models.URLField(null=True)
+    rating = models.IntegerField(choices=Ratings.choices, default=3)
 
     class Meta:
         get_latest_by = "created"

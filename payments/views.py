@@ -82,7 +82,7 @@ class Payment(APIView):
                 for obj in product:
                     obj.save()
 
-            send_order_confirmation_email.delay(order.id)
+            send_order_confirmation_email.delay(order)
             write_trxn_to_csv.delay(order, customer, result.transaction.id)
             return Response(
                 {"success": "Payment was successful"}, status=status.HTTP_200_OK

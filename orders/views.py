@@ -13,7 +13,7 @@ from .serializers import OrderSerializer
 
 
 # Create your views here.
-class OrdersList(GenericAPIView, LimitOffsetPagination):
+class OrdersListView(GenericAPIView, LimitOffsetPagination):
 
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
@@ -43,7 +43,7 @@ class OrdersList(GenericAPIView, LimitOffsetPagination):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class OrderInstance(GenericAPIView):
+class OrderInstanceView(GenericAPIView):
 
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
@@ -78,17 +78,12 @@ class OrderInstance(GenericAPIView):
     )
     def put(self, request, pk):
         order = self.get_object(pk)
-        address_serializer = AddressSerializer(data=request.data)
-
-        if address_serializer.is_valid(raise_exception=True):
-            address = address_serializer.save()
-            order.address = address
-            order.save()
-            serializer = self.get_serializer(order)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-        return Response(address_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+        data = {"address": request.data}
+        serializer = OrderSerializer(instance=order, data=data)
+        serializer.context["request"] = request
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @swagger_auto_schema(
         operation_summary="Delete an order by ID.",

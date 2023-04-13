@@ -1,4 +1,3 @@
-from drf_writable_nested.serializers import WritableNestedModelSerializer
 from rest_framework import serializers
 
 from customers.models import Address
@@ -8,7 +7,7 @@ from products.serializers import SimpleProductSerializer
 from .models import Order, OrderItem
 
 
-class OrderItemSerializer(WritableNestedModelSerializer):
+class OrderItemSerializer(serializers.ModelSerializer):
 
     product = SimpleProductSerializer()
     cost = serializers.SerializerMethodField(read_only=True)
@@ -20,7 +19,8 @@ class OrderItemSerializer(WritableNestedModelSerializer):
     def get_cost(self, obj):
         return f"${obj.get_cost()}"
 
-class OrderSerializer(WritableNestedModelSerializer):
+
+class OrderSerializer(serializers.ModelSerializer):
 
     address = AddressSerializer()
     customer = serializers.StringRelatedField()
@@ -46,11 +46,14 @@ class OrderSerializer(WritableNestedModelSerializer):
 
     def update(self, instance, validated_data):
         data = validated_data.get("address")
+
         try:
             address, created = Address.objects.get_or_create(**data)
         except Address.MultipleObjectsReturned:
             address = Address.objects.filter(**data).first()
+
         instance.address = address
+        instance.save()
         return instance
 
 
