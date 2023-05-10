@@ -32,6 +32,7 @@ class Cart:
                 "product": product.name,
                 "price": str(product.price),
                 "quantity": quantity,
+                "shipping_fee": str(product.shipping_fee)
             }
             return self.save()
         else:
@@ -56,5 +57,9 @@ class Cart:
         del self.session["cart"]
         self.save()
 
+    def get_total_shipping_fee(self):
+        return sum(Decimal(items["shipping_fee"]) for items in self.cart.values())
+
     def get_total_cost(self):
-        return sum(Decimal(items["price"]) * items["quantity"] for items in self.cart.values())
+        products_cost = sum(Decimal(items["price"]) * items["quantity"] for items in self.cart.values())
+        return products_cost + self.get_total_shipping_fee()

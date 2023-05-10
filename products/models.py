@@ -54,6 +54,7 @@ class Product(BaseModel):
     sold = models.PositiveIntegerField(default=0)
     price = models.DecimalField(max_digits=6, decimal_places=2)
     label = models.CharField(max_length=50, null=True, blank=True)
+    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
     available = models.BooleanField(default=False)
 
     class Meta:

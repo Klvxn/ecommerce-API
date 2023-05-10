@@ -14,6 +14,7 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             "image_url",
             "stock",
             "price",
+            "shipping_fee",
             "label",
         ]
 
@@ -25,6 +26,7 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
         instance.stock = validated_data.get("stock", instance.stock)
         instance.label = validated_data.get("label", instance.label)
         instance.price = validated_data.get("price", instance.price)
+        instance.shipping_fee = validated_data.get("shipping_fee", instance.shipping_fee)
         instance.save()
         return instance
 
@@ -56,6 +58,7 @@ class ProductsListSerializer(serializers.ModelSerializer):
             "description",
             "image_url",
             "available",
+            "shipping_fee",
             "stock",
             "price",
             "sold",
@@ -90,6 +93,7 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "name",
             "category",
             "price",
+            "shipping_fee",
         ]
 
     def get_price(self, obj):

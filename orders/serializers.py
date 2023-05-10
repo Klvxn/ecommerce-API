@@ -26,6 +26,7 @@ class OrderSerializer(serializers.ModelSerializer):
     customer = serializers.StringRelatedField()
     order_items = OrderItemSerializer(many=True, required=False)
     url = serializers.HyperlinkedIdentityField(view_name="order-detail")
+    total_shipping = serializers.SerializerMethodField(read_only=True)
     total_cost = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -37,9 +38,13 @@ class OrderSerializer(serializers.ModelSerializer):
             "created",
             "address",
             "order_items",
+            "total_shipping",
             "total_cost",
             "status",
         ]
+
+    def get_total_shipping(self, obj):
+        return f"${obj.get_total_shipping_fee()}"
 
     def get_total_cost(self, obj):
         return f"${obj.get_total_cost()}"

@@ -41,9 +41,11 @@ class Order(models.Model):
     def __str__(self):
         return str(self.id)
 
+    def get_total_shipping_fee(self):
+        return sum(items.shipping_fee for items in self.order_items.all())
+
     def get_total_cost(self):
-        total_cost = sum(items.get_cost() for items in self.order_items.all())
-        return total_cost
+        return sum(items.get_cost() for items in self.order_items.all())  + self.get_total_shipping_fee()
 
 
 class OrderItem(models.Model):
@@ -52,6 +54,7 @@ class OrderItem(models.Model):
     product = models.ForeignKey(Product, related_name="items", on_delete=models.CASCADE)
     cost_per_item = models.DecimalField(max_digits=6, decimal_places=2, blank=True)
     quantity = models.PositiveIntegerField(default=1)
+    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2)
 
     def __str__(self):
         return str(self.id)

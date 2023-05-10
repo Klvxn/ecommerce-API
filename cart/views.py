@@ -34,6 +34,7 @@ class CartView(APIView):
                 {
                     "Cart items": data,
                     "Total items": len(user_cart),
+                    "Shipping": f"${user_cart.get_total_shipping_fee()}",
                     "Total cost": f"${user_cart.get_total_cost()}",
                 },
                 status=status.HTTP_200_OK,
@@ -98,6 +99,7 @@ class CartView(APIView):
                     product=product,
                     quantity=item.get("quantity"),
                     cost_per_item=item.get("price"),
+                    shipping_fee=item.get("shipping_fee")
                 )
 
             user_cart.clear()
@@ -114,6 +116,7 @@ class CartView(APIView):
                     product=product,
                     quantity=item.get("quantity"),
                     cost_per_item=item.get("price"),
+                    shipping_fee=item.get("shipping_fee")
                 )
 
             user_cart.clear()
