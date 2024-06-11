@@ -45,7 +45,7 @@ class Payment(APIView):
         order = self.get_object(pk)
         customer = order.customer
         address = order.address
-        total_cost = order.get_total_cost()
+        total_cost = order.total_cost()
         customer_kwargs = {
             "first_name": customer.first_name,
             "last_name": customer.last_name,
@@ -74,7 +74,7 @@ class Payment(APIView):
 
             for item in order.order_items.all().select_related('product'):
                 product = Product.objects.filter(id=item.product_id)
-                product.update(stock=item.product.stock - item.quantity, sold=item.quantity)
+                product.update(in_stock=item.product.in_stock - item.quantity, quantity_sold=item.quantity)
                 customer.total_items_bought += item.quantity
                 customer.products_bought.add(product)
                 customer.save()

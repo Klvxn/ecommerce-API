@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Product, Review
+from .models import Discount, Product, Review
 
 
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
@@ -12,7 +12,7 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             "category",
             "description",
             "image_url",
-            "stock",
+            "in_stock",
             "price",
             "shipping_fee",
             "label",
@@ -23,7 +23,7 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
         instance.category = validated_data.get("category", instance.category)
         instance.description = validated_data.get("description", instance.description)
         instance.image_url = validated_data.get("image_url", instance.image_url)
-        instance.stock = validated_data.get("stock", instance.stock)
+        instance.stock = validated_data.get("in_stock", instance.stock)
         instance.label = validated_data.get("label", instance.label)
         instance.price = validated_data.get("price", instance.price)
         instance.shipping_fee = validated_data.get("shipping_fee", instance.shipping_fee)
@@ -59,9 +59,10 @@ class ProductsListSerializer(serializers.ModelSerializer):
             "image_url",
             "available",
             "shipping_fee",
-            "stock",
+            "in_stock",
             "price",
-            "sold",
+            "quantity_sold",
+            "discount",
             "label",
         ]
 
@@ -84,7 +85,7 @@ class ProductInstanceSerializer(ProductsListSerializer):
 class SimpleProductSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
-    price = serializers.SerializerMethodField(read_only=True)
+    # price = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
@@ -92,9 +93,17 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "category",
-            "price",
-            "shipping_fee",
+            # "price",
+            # "shipping_fee",
         ]
 
-    def get_price(self, obj):
-        return f"${obj.price}"
+    # def get_price(self, obj):
+    #     return f"${obj.price}"
+
+
+class DiscountSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = Discount
+        fields = "__all__"
+        

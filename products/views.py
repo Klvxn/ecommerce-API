@@ -4,22 +4,35 @@ from drf_yasg import openapi
 from rest_framework import exceptions, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.generics import GenericAPIView
+from rest_framework.generics import GenericAPIView, ListAPIView
+from rest_framework.views import APIView
 from rest_framework.pagination import LimitOffsetPagination
 
 from cart.cart import Cart
 from vendors.permissions import VendorCreateOnly, VendorOnly
 
-from .models import Product, Review
+from .models import Discount, Product, Review
 from .serializers import (
     ProductInstanceSerializer,
     ProductReviewSerializer,
     ProductsListSerializer,
     ProductCreateUpdateSerializer,
+    DiscountSerializer,
 )
 
 
 # Create your views here.
+# @api_view(['get'])
+# def discounts_list(request):
+#     pass
+
+class DiscountView(ListAPIView):
+    
+    serializer_class = DiscountSerializer
+    queryset = Discount.objects.all()
+    permission_classes = [AllowAny]
+
+
 class ProductsListView(GenericAPIView, LimitOffsetPagination):
 
     permission_classes = [AllowAny]
@@ -115,17 +128,18 @@ class ProductCRUDView(GenericAPIView):
         )
 
 
-class ProductCartView(GenericAPIView):
+class ProductCartView(APIView):
     """
     Operations for adding, updating or removing a product from a user's cart.
     """
 
     queryset = Product.objects.all()
     permission_classes = [AllowAny]
+    http_method_names = ["post", "delete"]
 
-    def get_object(self):
+    def get_object(self, pk):
         try:
-            return super().get_object()
+            return get_object_or_404(Product, pk=pk)
         except Product.DoesNotExist:
             raise exceptions.NotFound({"error": "Product not found."})
 
@@ -142,17 +156,18 @@ class ProductCartView(GenericAPIView):
         tags=["products"],
     )
     def post(self, request, pk):
-        product = self.get_object()
+        product = self.get_object(pk)
         user_cart = Cart(request)
         quantity = request.data.get("quantity")
+        discount_code = request.data.get("discount_code")
 
-        if quantity > product.stock:
+        if quantity > product.in_stock:
             return Response(
                 {"error": "The quantity cannot be more than product's stock"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        user_cart.add_item(product=product, quantity=quantity)
+        
+        user_cart.add_item(product, quantity, discount_code=discount_code)
         return Response(
             {"success": f"{product} has been added to cart"},
             status=status.HTTP_200_OK,
@@ -162,7 +177,7 @@ class ProductCartView(GenericAPIView):
         operation_summary="Delete a product from cart", tags=["products"]
     )
     def delete(self, request, pk):
-        product = self.get_object()
+        product = self.get_object(pk)
         user_cart = Cart(request)
         deleted = user_cart.remove_item(product)
 

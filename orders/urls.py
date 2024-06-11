@@ -4,6 +4,6 @@ from .views import OrderInstanceView, OrdersListView
 
 
 urlpatterns = [
-    path("me/orders/", OrdersListView.as_view(), name="orders"),
-    path("me/orders/<uuid:pk>/", OrderInstanceView.as_view(), name="order-detail"),
+    path("i/orders/", OrdersListView.as_view(), name="orders"),
+    path("i/orders/<uuid:pk>/", OrderInstanceView.as_view(), name="order-detail"),
 ]

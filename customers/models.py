@@ -1,5 +1,4 @@
-import autoslug
-
+from autoslug import AutoSlugField
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -8,7 +7,9 @@ from .managers import MyUserManager
 
 # Create your models here.
 class Address(models.Model):
-
+    """
+    Represents a customer's shipping or billing address.
+    """
     street_address = models.CharField(max_length=30)
     postal_code = models.PositiveIntegerField()
     city = models.CharField(max_length=50)
@@ -20,9 +21,16 @@ class Address(models.Model):
 
 
 class Customer(AbstractUser):
+    """
+    Represents a user of the system who is a customer.
 
+    This model inherits from Django's AbstractUser model and adds additional customer-specific fields
+
+    This model overrides the default username field and required fields 
+    to use email as the primary user identifier
+    """
     email = models.EmailField(("email address"), max_length=254, unique=True, db_index=True)
-    slug = autoslug.AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
+    slug = AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(null=True)
     address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)
     total_items_bought = models.PositiveIntegerField(null=True, default=0)

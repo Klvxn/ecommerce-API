@@ -1,4 +1,8 @@
+from datetime import datetime, timezone
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 
@@ -10,7 +14,18 @@ User = get_user_model()
 
 
 def get_sentinel_user():
-    user_detail = {"first_name": "None", "last_name": "None", "email": "user@none.com"}
+    """
+    Creates and returns a sentinel user object to be used as a placeholder
+    when the original user is deleted.
+    
+    Returns:
+        A User object representing the sentinel user.
+
+    Raises:
+        ObjectDoesNotExist: If there's an error creating the user object.
+    """
+
+    user_detail = {"first_name": "deleted", "last_name": "None", "email": "deleted@none.com"}
     return User.objects.create_user(**user_detail)
 
 
@@ -18,14 +33,100 @@ class BaseModel(models.Model):
 
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    # image = models.ImageField(upload_to="%(app_label)s_%(class)/")
 
     class Meta:
         abstract = True
+        
+        
+class OrderDiscountManager(models.Manager):
+    """
+    Manager to handle querysets specifically for order discounts.
+    """
+    def get_queryset(self):
+        return super().get_queryset().filter(discount_type="order_discount")
+
+
+class ProductDiscountManager(models.Manager):
+    """
+    Manager to handle querysets specifically for product discounts.
+    """
+    def get_queryset(self):
+        return super().get_queryset().filter(discount_type="order_discount")
+
+
+class Discount(BaseModel):
+    """
+    Model representing a discount which can be applied to orders or products.
+    """
+    
+    DISCOUNT_TYPES = (
+        ("order_discount", "Order discount"),
+        ("product_discount", "Product discount")
+    )
+    
+    name = models.CharField(max_length=50)
+    code = models.CharField(max_length=20, unique=True)
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPES, default="product_discount")
+    description = models.TextField()
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2)
+    active = models.BooleanField(default=False)
+    valid_from = models.DateTimeField()
+    minimum_order_value = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valid_to = models.DateTimeField()
+    owner = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    
+    objects = models.Manager()
+    order_discounts = OrderDiscountManager()
+    product_discounts = ProductDiscountManager()
+    
+    def __str__(self):
+        return self.name
+    
+    def clean(self):
+        """
+        Validate the discount model fields.
+        
+        Raises:
+            ValidationError: If the discount type is order_discount and minimum_order_value is not set.
+        """
+        if self.discount_type == "order_discount" and self.minimum_order_value is None:
+            raise ValidationError({
+                "minimum_order_value": "Minimum order value is required for order discounts"
+            })
+        super().clean()
+        
+    def is_valid(self):
+        """
+        Check if the discount is currently active and within the valid date range.
+
+        Returns:
+            bool: True if the discount is valid, False otherwise.
+        """
+        return self.active and self.valid_from <= datetime.now(timezone.utc) <= self.valid_to
+    
+    def apply_discount(self, price):
+        """
+        Applies the discount to the given price if the discount is valid.
+
+        Args:
+            price: The original price before discount.
+            discount: The Discount object to apply.
+
+        Returns:
+            The discounted price if applicable, None otherwise.
+        """
+        if self.active and self.is_valid():
+            percentage_discount = self.discount_percentage
+            discount_amount = price * Decimal(percentage_discount / 100)
+            discounted_price = price - round(discount_amount, 2)
+            return discounted_price
+        return price
 
 
 class Category(models.Model):
-
+    """
+    Model representing a category for products.
+    """
     name = models.CharField(max_length=50, db_index=True)
     slug = models.SlugField()
 
@@ -44,17 +145,20 @@ class Category(models.Model):
 
 
 class Product(BaseModel):
-
+    """
+    Model representing a product.
+    """
     name = models.CharField(max_length=50, unique=True, db_index=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
     description = models.TextField()
     vendor = models.ForeignKey(Vendor, on_delete=models.CASCADE, null=True)
     image_url = models.URLField()
-    stock = models.PositiveIntegerField()
-    sold = models.PositiveIntegerField(default=0)
+    in_stock = models.PositiveIntegerField()
+    quantity_sold = models.PositiveIntegerField(default=0)
     price = models.DecimalField(max_digits=6, decimal_places=2)
     label = models.CharField(max_length=50, null=True, blank=True)
-    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+    discount = models.ForeignKey(Discount, on_delete=models.SET_NULL, null=True, blank=True)
+    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     available = models.BooleanField(default=False)
 
     class Meta:
@@ -64,24 +168,32 @@ class Product(BaseModel):
         return self.name
 
     def save(self, *args, **kwargs):
-        if self.stock > 0:
+        if self.in_stock > 0:
             self.available = True
         else:
             self.available = False
         return super().save(*args, **kwargs)
 
     def get_latest_reviews(self):
+        """
+        Get the latest reviews for the product.
+
+        Returns:
+            QuerySet: The latest 10 reviews for the product.
+        """
         return self.reviews.values("id", "user__email", "review", "created").order_by("-created")[:10]
 
 
 class Review(BaseModel):
-
+    """
+    Model representing a review for a product.
+    """
     class Ratings(models.IntegerChoices):
-        VERY_BAD = 1
-        UNSATISFIED = 2
-        JUST_THERE = 3
-        SATISFIED = 4
-        VERY_SATISFIED = 5
+        VERY_BAD = 1, "Very Bad"
+        UNSATISFIED = 2, "Unsatisfied"
+        JUST_THERE = 3, "Just There"
+        SATISFIED = 4, "Satisfied"
+        VERY_SATISFIED = 5, "Very Satisfied"
 
     user = models.ForeignKey(User, on_delete=models.SET(get_sentinel_user))
     product = models.ForeignKey(
@@ -93,3 +205,6 @@ class Review(BaseModel):
 
     class Meta:
         get_latest_by = "created"
+
+    def __str__(self):
+        return f"Review of {self.product.name} by {self.user.get_full_name()}"

@@ -11,6 +11,12 @@ from .serializers import VendorSerializer, VendorInstanceSerializer
 
 # Create your views here.
 class VendorViewSet(ModelViewSet):
+    """
+    API endpoint for managing vendor accounts.
+
+    This viewset provides functionalities for listing, creating, retrieving, 
+    updating, and deleting vendor accounts.
+    """
 
     http_method_names = ["get", "post", "put", "delete"]
     lookup_field = "slug"

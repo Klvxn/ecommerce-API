@@ -93,6 +93,7 @@ class APIRoot(APIView):
     def get(self, request, format=None):
         return response.Response({
             "products": reverse.reverse("products", request=request, format=format),
+            "discounts": reverse.reverse("discounts", request=request, format=format),
             "vendors": reverse.reverse("vendor-list", request=request, format=format),
             "cart": reverse.reverse("cart", request=request, format=format),
         })

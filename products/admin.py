@@ -1,10 +1,13 @@
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
 
-from .models import Category, Product, Review
+from .models import Category, Discount, Product, Review
 
 
 # Register your models here.
+admin.site.register(Discount)
+
+
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
 
@@ -24,8 +27,8 @@ class ProductAdmin(admin.ModelAdmin):
 
     actions = ["make_unavailable"]
     inlines = [ReviewInline]
-    list_display = ["name", "category", "stock", "price", "available"]
-    list_editable = ["category", "available", "stock", "price"]
+    list_display = ["name", "category", "in_stock", "price", "available"]
+    list_editable = ["category", "available", "in_stock", "price"]
     list_filter = ["available", "category", "created", "vendor"]
     preserve_filters = True
     search_fields = ["name"]

@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from customers.serializers import AddressSerializer
 from orders.models import Order, OrderItem
 from orders.serializers import OrderSerializer
-from products.models import Product
+from products.models import Discount, Product
 
 from .cart import Cart
 
@@ -26,7 +26,6 @@ class CartView(APIView):
         user_cart = Cart(request)
         if user_cart.cart:
             data = []
-
             for item in user_cart:
                 data.append(item)
 
@@ -49,16 +48,42 @@ class CartView(APIView):
             required=["action"],
             properties={
                 "action": openapi.Schema(type=openapi.TYPE_STRING),
+                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
+                "address": openapi.Schema(type=openapi.TYPE_OBJECT)
             },
-            example={"action": "create_order"},
+            example={
+                "action": "create_order",
+                "discount_code": "SAVE10",
+                "address": {
+                    "street": "123 Main St",
+                    "postal_code": "12345",
+                    "city": "Anytown",
+                    "state": "CA",
+                    "country": "Canada",
+                }
+            },
         ),
         responses={201: OrderSerializer, 400: "Bad request"},
         tags=["cart"]
     )
     @method_decorator(login_required(login_url="/auth/login/"))
     def post(self, request):
+        """
+        Handle POST request to create an order from the user's cart.
+
+        Args:
+            request (Request): The HTTP request containing user and cart data.
+
+        Returns:
+            Response: HTTP response with order details or error messages.
+        """
         action = request.data.get("action")
+        discount_code = request.data.get("discount_code")
+        shipping_address = request.data.get("address")
         user_cart = Cart(request)
+        
+        if action not in ("create_order", "save_order"):
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
         if action and len(user_cart) <= 0:
             return Response(
@@ -68,57 +93,46 @@ class CartView(APIView):
 
         customer = request.user
         order = Order.objects.create(customer=customer)
-
-        if action == "create_order":
-
-            if not customer.address:
-                address = request.data.get("address")
-
-                if address is None:
-                    return Response(
-                        {"error": "Shipping address was not provided"},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                serializer = AddressSerializer(data=address)
-
-                if serializer.is_valid(raise_exception=True):
-                    order.address = serializer.save()
+        
+        if discount_code:
+            discount = Discount.order_discounts.filter(code=discount_code).first()
+            if discount and discount.is_valid():
+                
+                if discount.minimum_order_value < user_cart.get_total_cost():
+                    order.discount = discount
                     order.save()
-
+                
                 else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+                    return Response({
+                        "error": f"The order total must be at least ${discount.minimum_order_value} to use this discount code"
+                    }, status=status.HTTP_400_BAD_REQUEST)
             else:
-                order.address = customer.address
-
-            for item in user_cart:
-                product = Product.objects.get(name=item["product"])
-                OrderItem.objects.create(
-                    order=order,
-                    product=product,
-                    quantity=item.get("quantity"),
-                    cost_per_item=item.get("price"),
-                    shipping_fee=item.get("shipping_fee")
+                return Response(
+                    {"error": "Invalid discount code or discount has expired"},
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
+        if action == "create_order":
+            address = shipping_address or customer.address
+            if address is None:
+                return Response(
+                    {"error": "Shipping address was not provided"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            serializer = AddressSerializer(data=address)
+            if serializer.is_valid(raise_exception=True):
+                order.address = serializer.save()
+                order.save()
+
+            OrderItem.create_from_cart(order, user_cart)
             user_cart.clear()
             context = {"request": request}
             serializer = OrderSerializer(order, context=context)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-        elif action == "save":
-
-            for item in user_cart:
-                product = Product.objects.get(name=item["product"])
-                OrderItem.objects.create(
-                    order=order,
-                    product=product,
-                    quantity=item.get("quantity"),
-                    cost_per_item=item.get("price"),
-                    shipping_fee=item.get("shipping_fee")
-                )
-
+        elif action == "save_order":
+            OrderItem.create_from_cart(order, user_cart)
             user_cart.clear()
             return Response(
                 {
@@ -148,7 +162,7 @@ class CartView(APIView):
 
         for key, value in request.data.items():
             product = get_object_or_404(Product, name=key)
-
+            
             if str(product.id) in user_cart.cart.keys():
                 user_cart.update_item(product, quantity=value)
                 return Response(
@@ -174,7 +188,6 @@ class CartView(APIView):
     )
     def delete(self, request):
         user_cart = Cart(request)
-
         if not request.data:
             user_cart.clear()
             return Response(

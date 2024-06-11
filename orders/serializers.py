@@ -14,10 +14,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ["product", "quantity", "cost"]
+        fields = ["product", "quantity", "unit_price", "discounted_price", "cost"]
 
     def get_cost(self, obj):
-        return f"${obj.get_cost()}"
+        return f"${obj.calculate_cost()}"
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -38,16 +38,17 @@ class OrderSerializer(serializers.ModelSerializer):
             "created",
             "address",
             "order_items",
+            "discount",
             "total_shipping",
             "total_cost",
             "status",
         ]
 
     def get_total_shipping(self, obj):
-        return f"${obj.get_total_shipping_fee()}"
+        return f"${obj.total_shipping_fee()}"
 
     def get_total_cost(self, obj):
-        return f"${obj.get_total_cost()}"
+        return f"${obj.total_cost()}"
 
     def update(self, instance, validated_data):
         data = validated_data.get("address")
@@ -72,7 +73,7 @@ class SimpleOrderItemSerializer(serializers.ModelSerializer):
         fields = ["product", "quantity", "cost"]
 
     def get_cost(self, obj):
-        return f"${obj.get_cost()}"
+        return f"${obj.calculate_cost()}"
 
 
 class SimpleOrderSerializer(serializers.ModelSerializer):
@@ -95,4 +96,4 @@ class SimpleOrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_cost(self, obj):
-        return f"${obj.get_total_cost()}"
+        return f"${obj.total_cost()}"
