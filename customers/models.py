@@ -46,3 +46,19 @@ class Customer(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+def get_sentinel_user():
+    """
+    Creates and returns a sentinel user object to be used as a placeholder
+    when the original user is deleted.
+    
+    Returns:
+        A User object representing the sentinel user.
+
+    Raises:
+        ObjectDoesNotExist: If there's an error creating the user object.
+    """
+
+    user_detail = {"first_name": "deleted", "last_name": "None", "email": "deleted@none.com"}
+    return Customer.objects.create_user(**user_detail)
