@@ -1,6 +1,7 @@
 from decimal import Decimal
+from django.core.exceptions import ValidationError
 
-from products.models import Discount, Product
+from products.models import Discount
 
 
 class Cart:
@@ -29,7 +30,7 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add_item(self, product: Product, quantity: int, discount_code: str | None = None):
+    def add_item(self, product, quantity, discount_code = None):
         """
         Adds a product to the cart or updates its quantity if it already exists. Applies a discount if provided.
 
@@ -37,7 +38,7 @@ class Cart:
             product (Product): The product to add or update.
             quantity (int): The quantity of the product.
             discount_code (str, optional): The discount code to apply. Defaults to None.
-        
+
         Returns:
             bool: True if the cart was successfully saved.
         """
@@ -47,16 +48,15 @@ class Cart:
                 "product": product.name,
                 "price": str(product.price),
                 "quantity": quantity,
-                'discounted_price': None,
-                "shipping_fee": str(product.shipping_fee)
+                "discounted_price": None,
+                "shipping_fee": str(product.shipping_fee),
             }
-        else: 
+        else:
             self.update_item(product, quantity)
         if discount_code is not None:
             discounted_price = self.apply_product_discount(product, discount_code)
             self.cart[product_id]["discounted_price"] = str(discounted_price)
         return self.save()
-
 
     def update_item(self, product, quantity):
         """
@@ -65,7 +65,7 @@ class Cart:
         Args:
             product (Product): The product to update.
             quantity (int): The new quantity of the product.
-        
+
         Returns:
             bool: True if the cart was successfully saved.
         """
@@ -83,13 +83,13 @@ class Cart:
         self.session.modified = True
         return True
 
-    def remove_item(self, product: Product):
+    def remove_item(self, product):
         """
         Removes a product from the cart.
 
         Args:
             product (Product): The product to remove.
-        
+
         Returns:
             bool: True if the cart was successfully saved.
         """
@@ -97,7 +97,7 @@ class Cart:
         if product_id in self.cart:
             del self.cart[product_id]
             return self.save()
-        
+
     def clear(self):
         """
         Clears all items from the cart.
@@ -108,15 +108,14 @@ class Cart:
         del self.session["cart"]
         self.save()
 
-        
-    def apply_product_discount(self, product: Product, discount_code: str):
+    def apply_product_discount(self, product, discount_code):
         """
         Applies a discount to a specific product in the cart.
 
         Args:
             product (Product): The product to apply the discount to.
             discount_code (str): The discount code to apply.
-        
+
         Returns:
             Decimal | None: The discounted price if the discount is valid and applicable, otherwise None.
         """
@@ -125,12 +124,19 @@ class Cart:
         if discount:
             if product.discount and product.discount.id == discount.id:
                 return discount.apply_discount(product_price)
-        else:
-            pass
-        
+        raise ValidationError(
+            {
+                "error": f"Discount with code: {discount_code} doesn't apply to this product"
+            }
+        )
+
     def calculate_item_cost(self, item):
-        return Decimal(item["price"]) * item["quantity"] if not item["discounted_price"] else Decimal(item["discounted_price"]) * item["quantity"]
-    
+        return (
+            Decimal(item["price"]) * item["quantity"]
+            if not item["discounted_price"]
+            else Decimal(item["discounted_price"]) * item["quantity"]
+        )
+
     def get_total_shipping_fee(self):
         """
         Calculates the total shipping fee for all items in the cart.
@@ -149,4 +155,3 @@ class Cart:
         """
         total_cost = sum(self.calculate_item_cost(item) for item in self.cart.values())
         return total_cost + self.get_total_shipping_fee()
- 
