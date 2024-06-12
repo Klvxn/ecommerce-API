@@ -6,28 +6,12 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 
+from customers.models import get_sentinel_user
 from vendors.models import Vendor
 
 
 # Create your models here.
 User = get_user_model()
-
-
-def get_sentinel_user():
-    """
-    Creates and returns a sentinel user object to be used as a placeholder
-    when the original user is deleted.
-    
-    Returns:
-        A User object representing the sentinel user.
-
-    Raises:
-        ObjectDoesNotExist: If there's an error creating the user object.
-    """
-
-    user_detail = {"first_name": "deleted", "last_name": "None", "email": "deleted@none.com"}
-    return User.objects.create_user(**user_detail)
-
 
 class BaseModel(models.Model):
 
@@ -160,6 +144,7 @@ class Product(BaseModel):
     discount = models.ForeignKey(Discount, on_delete=models.SET_NULL, null=True, blank=True)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     available = models.BooleanField(default=False)
+    rating = models.FloatField(null=True, blank=True)
 
     class Meta:
         ordering = ["category", "name"]
@@ -172,7 +157,18 @@ class Product(BaseModel):
             self.available = True
         else:
             self.available = False
-        return super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
+        
+    def update_rating(self):
+        self.rating = self.calculate_rating()
+        self.save()
+    
+    def calculate_rating(self):
+        results = self.reviews.aggregate(
+            sum=models.Sum("rating"), count=models.Count("id")
+        )
+        rating_sum, reviews_count = results.values()
+        return rating_sum / reviews_count if reviews_count else None
 
     def get_latest_reviews(self):
         """
@@ -200,11 +196,15 @@ class Review(BaseModel):
         Product, on_delete=models.CASCADE, related_name="reviews"
     )
     review = models.TextField()
-    image_url = models.URLField(null=True)
-    rating = models.IntegerField(choices=Ratings.choices, default=3)
+    image_url = models.URLField(null=True, blank=True)
+    rating = models.IntegerField(choices=Ratings.choices, default=0)
 
     class Meta:
         get_latest_by = "created"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.product.update_rating()
+        
     def __str__(self):
         return f"Review of {self.product.name} by {self.user.get_full_name()}"

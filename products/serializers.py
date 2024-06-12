@@ -64,6 +64,7 @@ class ProductsListSerializer(serializers.ModelSerializer):
             "quantity_sold",
             "discount",
             "label",
+            "rating"
         ]
 
     def get_price(self, obj):
@@ -85,7 +86,6 @@ class ProductInstanceSerializer(ProductsListSerializer):
 class SimpleProductSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
-    # price = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
@@ -93,12 +93,8 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "category",
-            # "price",
-            # "shipping_fee",
+            "rating",
         ]
-
-    # def get_price(self, obj):
-    #     return f"${obj.price}"
 
 
 class DiscountSerializer(serializers.ModelSerializer):
