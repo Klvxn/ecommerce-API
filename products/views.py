@@ -124,7 +124,7 @@ class ProductCRUDView(GenericAPIView):
         product = self.get_object()
         product.delete()
         return Response(
-            {"message": "Product deleted"}, status=status.HTTP_204_NO_CONTENT
+            {"success": "Product deleted"}, status=status.HTTP_204_NO_CONTENT
         )
 
 
@@ -183,12 +183,12 @@ class ProductCartView(APIView):
 
         if deleted:
             return Response(
-                {"message": f"{product} has been removed from cart."},
+                {"success": f"{product} has been removed from cart."},
                 status=status.HTTP_204_NO_CONTENT,
             )
 
         return Response(
-            {"message": f"{product} is not in cart."},
+            {"error": f"{product} is not in cart."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -224,7 +224,7 @@ class ReviewActions(GenericAPIView):
         if product not in customer.products_bought.all():
             return Response(
                 {
-                    "message": "You can't add a review for a product you didn't purchase."
+                    "error": "You can't add a review for a product you didn't purchase."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -234,10 +234,10 @@ class ReviewActions(GenericAPIView):
         if serializer.is_valid(raise_exception=True):
             serializer.save(user=request.user, product=product)
             return Response(
-                {"message": "Review posted"}, status=status.HTTP_201_CREATED
+                {"success": "Review posted"}, status=status.HTTP_201_CREATED
             )
 
-        return Response({"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ReviewInstance(GenericAPIView):
@@ -273,7 +273,7 @@ class ReviewInstance(GenericAPIView):
 
         if request.user != review.user:
             return Response(
-                {"message": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
+                {"error": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
             )
 
         serializer = self.get_serializer(instance=review, data=request.data)
@@ -282,7 +282,7 @@ class ReviewInstance(GenericAPIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        return Response({"message": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
     @swagger_auto_schema(
         operation_summary="Delete a product's review", tags=["reviews"]
@@ -292,10 +292,10 @@ class ReviewInstance(GenericAPIView):
 
         if request.user != review.user:
             return Response(
-                {"message": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
+                {"error": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
             )
 
         review.delete()
         return Response(
-            {"message": "Review deleted"}, status=status.HTTP_204_NO_CONTENT
+            {"success": "Review deleted"}, status=status.HTTP_204_NO_CONTENT
         )

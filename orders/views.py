@@ -93,5 +93,5 @@ class OrderInstanceView(GenericAPIView):
         order = self.get_object(pk)
         order.delete()
         return Response(
-            {"message": "Order has been deleted"}, status=status.HTTP_204_NO_CONTENT
+            {"success": "Order has been deleted"}, status=status.HTTP_204_NO_CONTENT
         )

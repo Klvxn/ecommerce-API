@@ -39,7 +39,7 @@ class CartView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        return Response({"message": "Your cart is empty"}, status=status.HTTP_200_OK)
+        return Response({"info": "Your cart is empty"}, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
         operation_summary="Create an order from user's cart items",
@@ -166,12 +166,12 @@ class CartView(APIView):
             if str(product.id) in user_cart.cart.keys():
                 user_cart.update_item(product, quantity=value)
                 return Response(
-                    {"message": "Cart updated"}, status=status.HTTP_200_OK
+                    {"success": "Cart updated"}, status=status.HTTP_200_OK
                 )
 
             else:
                 return Response(
-                    {"message": "This item is not in your cart"},
+                    {"error": "This item is not in your cart"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -191,7 +191,7 @@ class CartView(APIView):
         if not request.data:
             user_cart.clear()
             return Response(
-                {"message": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT
+                {"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT
             )
 
         for key in request.data.keys():
@@ -200,12 +200,12 @@ class CartView(APIView):
 
             if removed:
                 return Response(
-                    {"message": "Item has been removed from cart"},
+                    {"success": "Item has been removed from cart"},
                     status=status.HTTP_204_NO_CONTENT,
                 )
 
             else:
                 return Response(
-                    {"message": "This item is not in your cart"},
+                    {"error": "This item is not in your cart"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
