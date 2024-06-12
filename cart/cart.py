@@ -1,7 +1,4 @@
 from decimal import Decimal
-from django.core.exceptions import ValidationError
-
-from products.models import Discount
 
 
 class Cart:
@@ -30,14 +27,14 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add_item(self, product, quantity, discount_code = None):
+    def add_item(self, product, quantity, discount=None):
         """
         Adds a product to the cart or updates its quantity if it already exists. Applies a discount if provided.
 
         Args:
             product (Product): The product to add or update.
             quantity (int): The quantity of the product.
-            discount_code (str, optional): The discount code to apply. Defaults to None.
+            discount (Discount, optional): The discount object to apply. Defaults to None.
 
         Returns:
             bool: True if the cart was successfully saved.
@@ -53,8 +50,8 @@ class Cart:
             }
         else:
             self.update_item(product, quantity)
-        if discount_code is not None:
-            discounted_price = self.apply_product_discount(product, discount_code)
+        if discount is not None:
+            discounted_price = self._apply_product_discount(product, discount)
             self.cart[product_id]["discounted_price"] = str(discounted_price)
         return self.save()
 
@@ -108,7 +105,7 @@ class Cart:
         del self.session["cart"]
         self.save()
 
-    def apply_product_discount(self, product, discount_code):
+    def _apply_product_discount(self, product, discount):
         """
         Applies a discount to a specific product in the cart.
 
@@ -119,16 +116,9 @@ class Cart:
         Returns:
             Decimal | None: The discounted price if the discount is valid and applicable, otherwise None.
         """
-        discount = Discount.product_discounts.filter(code=discount_code).first()
         product_price = product.price
-        if discount:
-            if product.discount and product.discount.id == discount.id:
-                return discount.apply_discount(product_price)
-        raise ValidationError(
-            {
-                "error": f"Discount with code: {discount_code} doesn't apply to this product"
-            }
-        )
+        return discount.apply_discount(product_price)
+
 
     def calculate_item_cost(self, item):
         return (

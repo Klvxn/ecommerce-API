@@ -4,8 +4,8 @@ from .views import (
     DiscountView,
     ProductCartView,
     ProductsListView,
-    ReviewActions,
-    ReviewInstance,
+    ProductReviewView,
+    ProductReviewInstance,
     ProductCRUDView,
 )
 
@@ -21,10 +21,10 @@ urlpatterns = [
     path("products/<int:pk>/cart/", ProductCartView.as_view()),
     path(
         "products/<int:product_id>/reviews/",
-        ReviewActions.as_view(),
+        ProductReviewView.as_view(),
     ),
     path(
         "products/<int:product_id>/reviews/<int:review_id>/",
-        ReviewInstance.as_view(),
+        ProductReviewInstance.as_view(),
     ),
 ]

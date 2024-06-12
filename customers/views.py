@@ -38,7 +38,8 @@ class CustomerInstanceView(RetrieveUpdateDestroyAPIView):
         return super().get_serializer_class()
 
     def dispatch(self, request, *args, **kwargs):
-        self.check_object_permissions(request, self.get_object())
+        if request.method.lower() != "get":
+            self.check_object_permissions(request, self.get_object())
         return super().dispatch(request, args, kwargs)
 
     @swagger_auto_schema(operation_summary="Get a customer by ID", tags=["customers"])

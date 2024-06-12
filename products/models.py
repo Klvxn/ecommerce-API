@@ -8,10 +8,12 @@ from django.utils.text import slugify
 
 from customers.models import get_sentinel_user
 from vendors.models import Vendor
+from .managers import DiscountQuerySet
 
 
 # Create your models here.
 User = get_user_model()
+
 
 class BaseModel(models.Model):
 
@@ -20,22 +22,6 @@ class BaseModel(models.Model):
 
     class Meta:
         abstract = True
-        
-        
-class OrderDiscountManager(models.Manager):
-    """
-    Manager to handle querysets specifically for order discounts.
-    """
-    def get_queryset(self):
-        return super().get_queryset().filter(discount_type="order_discount")
-
-
-class ProductDiscountManager(models.Manager):
-    """
-    Manager to handle querysets specifically for product discounts.
-    """
-    def get_queryset(self):
-        return super().get_queryset().filter(discount_type="order_discount")
 
 
 class Discount(BaseModel):
@@ -59,10 +45,8 @@ class Discount(BaseModel):
     valid_to = models.DateTimeField()
     owner = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     
-    objects = models.Manager()
-    order_discounts = OrderDiscountManager()
-    product_discounts = ProductDiscountManager()
-    
+    objects = DiscountQuerySet.as_manager()
+
     def __str__(self):
         return self.name
     
@@ -145,6 +129,8 @@ class Product(BaseModel):
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     available = models.BooleanField(default=False)
     rating = models.FloatField(null=True, blank=True)
+    
+    objects = models.Manager()
 
     class Meta:
         ordering = ["category", "name"]
@@ -160,10 +146,24 @@ class Product(BaseModel):
         super().save(*args, **kwargs)
         
     def update_rating(self):
+        """
+        Updates the rating field of the product with value from the 
+        `calculate_rating` method.
+        
+        Returns:
+            None
+        """
         self.rating = self.calculate_rating()
         self.save()
     
     def calculate_rating(self):
+        """
+        Calculate the average rating of the product based on its 
+        associated reviews.
+        
+        Returns:
+            float or None: The calculated average rating, or None if no reviews.
+        """
         results = self.reviews.aggregate(
             sum=models.Sum("rating"), count=models.Count("id")
         )

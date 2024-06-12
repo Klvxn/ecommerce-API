@@ -18,6 +18,12 @@ from .cart import Cart
 
 # Create your views here.
 class CartView(APIView):
+    """
+    View to handle cart-related operations:
+    
+    retrieving cart items, creating orders from the cart, updating and
+    removing items from the cart.
+    """
 
     permission_classes = [AllowAny]
 
@@ -25,9 +31,7 @@ class CartView(APIView):
     def get(self, request, *args, **kwargs):
         user_cart = Cart(request)
         if user_cart.cart:
-            data = []
-            for item in user_cart:
-                data.append(item)
+            data = [item for item in user_cart]
 
             return Response(
                 {
@@ -55,7 +59,7 @@ class CartView(APIView):
                 "action": "create_order",
                 "discount_code": "SAVE10",
                 "address": {
-                    "street": "123 Main St",
+                    "street_address": "123 Main St",
                     "postal_code": "12345",
                     "city": "Anytown",
                     "state": "CA",
@@ -83,9 +87,11 @@ class CartView(APIView):
         user_cart = Cart(request)
         
         if action not in ("create_order", "save_order"):
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid data"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
-        if action and len(user_cart) <= 0:
+        if len(user_cart) <= 0:
             return Response(
                 {"error": "Can't create an order. Your cart is empty"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -95,54 +101,56 @@ class CartView(APIView):
         order = Order.objects.create(customer=customer)
         
         if discount_code:
-            discount = Discount.order_discounts.filter(code=discount_code).first()
-            if discount and discount.is_valid():
-                
-                if discount.minimum_order_value < user_cart.get_total_cost():
-                    order.discount = discount
-                    order.save()
-                
-                else:
-                    return Response({
-                        "error": f"The order total must be at least ${discount.minimum_order_value} to use this discount code"
-                    }, status=status.HTTP_400_BAD_REQUEST)
-            else:
+            discount = Discount.objects.for_order().filter(code=discount_code).first()
+            
+            if not discount or not discount.is_valid():    
                 return Response(
-                    {"error": "Invalid discount code or discount has expired"},
+                    {"error": "Invalid discount code or discount offer has expired"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-
-        if action == "create_order":
-            address = shipping_address or customer.address
-            if address is None:
-                return Response(
-                    {"error": "Shipping address was not provided"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            serializer = AddressSerializer(data=address)
-            if serializer.is_valid(raise_exception=True):
-                order.address = serializer.save()
+                
+            if discount.minimum_order_value < user_cart.get_total_cost():
+                order.discount = discount
                 order.save()
-
-            OrderItem.create_from_cart(order, user_cart)
-            user_cart.clear()
-            context = {"request": request}
-            serializer = OrderSerializer(order, context=context)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-        elif action == "save_order":
-            OrderItem.create_from_cart(order, user_cart)
-            user_cart.clear()
+            
+            else:
+                return Response({
+                    "error": f"Your order total must be at least ${discount.minimum_order_value} to use this discount code"
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        address = shipping_address or customer.address
+        if not address:
             return Response(
-                {
-                    "success": f"Your Order has been saved and your Order ID is {order.id}."
-                },
-                status=status.HTTP_201_CREATED,
+                {"error": "Shipping address was not provided"},
+                status=status.HTTP_400_BAD_REQUEST
             )
-
-        else:
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+            
+        match action:
+            case "create_order":
+                if shipping_address:
+                    serializer = AddressSerializer(data=shipping_address)
+                    serializer.is_valid(raise_exception=True)
+                    order.address = serializer.save()
+                    order.save()
+                else:
+                    order.address = customer.address
+                    order.save()
+                    
+                OrderItem.create_from_cart(order, user_cart)
+                user_cart.clear()
+                context = {"request": request}
+                serializer = OrderSerializer(order, context=context)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+            case "save_order":
+                OrderItem.create_from_cart(order, user_cart)
+                user_cart.clear()
+                return Response(
+                    {
+                        "success": f"Your Order has been saved and your Order ID is {order.id}."
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
 
     @swagger_auto_schema(
         operation_summary="Update an item in the cart",
@@ -153,27 +161,36 @@ class CartView(APIView):
                 "product_name": openapi.Schema(type=openapi.TYPE_STRING),
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
             },
-            example={"product_name": 32},
+            example={
+                "product_name": "Logitech Wireless Mouse",
+                "quantity": 12
+            },
         ),
         tags=["cart"]
     )
     def put(self, request):
         user_cart = Cart(request)
+        product_name = request.data.get("product_name")
+        quantity = request.data.get("quantity")
 
-        for key, value in request.data.items():
-            product = get_object_or_404(Product, name=key)
-            
-            if str(product.id) in user_cart.cart.keys():
-                user_cart.update_item(product, quantity=value)
-                return Response(
-                    {"success": "Cart updated"}, status=status.HTTP_200_OK
-                )
+        if not product_name or not quantity:
+            return Response(
+                {"error": "Both product_name and quantity are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-            else:
-                return Response(
-                    {"error": "This item is not in your cart"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        product = get_object_or_404(Product, name=product_name)
+                    
+        if str(product.id) in user_cart.cart.keys():
+            user_cart.update_item(product, quantity=quantity)
+            return Response(
+                {"success": "Cart updated"}, status=status.HTTP_200_OK
+            )
+
+        return Response(
+            {"error": f"This item: {product_name} is not in your cart"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     @swagger_auto_schema(
         operation_summary="Remove an item from cart or clear the cart",
@@ -194,8 +211,8 @@ class CartView(APIView):
                 {"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT
             )
 
-        for key in request.data.keys():
-            product = get_object_or_404(Product, name=key)
+        for product_name in request.data.keys():
+            product = get_object_or_404(Product, name=product_name)
             removed = user_cart.remove_item(product)
 
             if removed:
@@ -204,8 +221,7 @@ class CartView(APIView):
                     status=status.HTTP_204_NO_CONTENT,
                 )
 
-            else:
-                return Response(
-                    {"error": "This item is not in your cart"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            return Response(
+                {"error": "This item is not in your cart"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )

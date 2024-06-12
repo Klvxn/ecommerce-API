@@ -15,6 +15,6 @@ class OrderItemInline(admin.TabularInline):
 class OrderAdmin(admin.ModelAdmin):
 
     inlines = [OrderItemInline]
-    list_display = ['id', 'customer', 'address', 'status', 'created']
+    list_display = ['id', 'customer', 'created', 'updated', 'status']
     list_filter = ['status', 'created', 'updated']
     list_per_page = 10

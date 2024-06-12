@@ -22,10 +22,6 @@ from .serializers import (
 
 
 # Create your views here.
-# @api_view(['get'])
-# def discounts_list(request):
-#     pass
-
 class DiscountView(ListAPIView):
     
     serializer_class = DiscountSerializer
@@ -34,7 +30,9 @@ class DiscountView(ListAPIView):
 
 
 class ProductsListView(GenericAPIView, LimitOffsetPagination):
-
+    """
+    View to list products with filtering, searching, and pagination.
+    """
     permission_classes = [AllowAny]
     serializer_class = ProductsListSerializer
     filterset_fields = ["category", "available", "vendor"]
@@ -49,7 +47,10 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
         operation_summary="Get all available products",
         manual_parameters=[
             openapi.Parameter(
-                name="search", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING
+                name="search", 
+                in_=openapi.IN_QUERY,
+                type=openapi.TYPE_STRING,
+                description="Search products"
             )
         ],
         responses={200: ProductsListSerializer(many=True)},
@@ -72,9 +73,9 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
 
 class ProductCRUDView(GenericAPIView):
     """
-    Includes operation to create, retrieve, update and delete a product.
+    Includes methods to create, retrieve, update and delete a product.
 
-    The `create`, `update`, and `delete` operations are permitted to vendors only
+    The `post`, `put`, and `delete` methods are permitted to vendors only
     """
 
     queryset = Product.objects.all()
@@ -130,7 +131,7 @@ class ProductCRUDView(GenericAPIView):
 
 class ProductCartView(APIView):
     """
-    Operations for adding, updating or removing a product from a user's cart.
+    View for adding, updating or removing a product from a user's cart.
     """
 
     queryset = Product.objects.all()
@@ -147,18 +148,20 @@ class ProductCartView(APIView):
         operation_summary="Add a product to cart",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            default=1,
+            required=["quantity"],
             properties={
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
+
             },
-            example={"quantity": 12},
+            example={"quantity": 12, "discount_code": "BLACKFRIDAY024"},
         ),
         tags=["products"],
     )
     def post(self, request, pk):
         product = self.get_object(pk)
         user_cart = Cart(request)
-        quantity = request.data.get("quantity")
+        quantity = request.data.get("quantity", 1)
         discount_code = request.data.get("discount_code")
 
         if quantity > product.in_stock:
@@ -166,13 +169,33 @@ class ProductCartView(APIView):
                 {"error": "The quantity cannot be more than product's stock"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+            
+        if not discount_code:
+            user_cart.add_item(product, quantity)
+            return Response(
+                {"success": f"{product} has been added to cart"},
+                status=status.HTTP_200_OK,
+            )
+            
+        discount = Discount.objects.for_product().filter(code=discount_code).first()
+        if not discount or not discount.is_valid():
+            return Response(
+                {"error": "Invalid discount code or Discount offer has expired"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if product.discount and product.discount.id == discount.id:
+            user_cart.add_item(product, quantity, discount=discount)
+            return Response(
+                {"success": f"{product} has been added to cart"},
+                status=status.HTTP_200_OK,
+            )
         
-        user_cart.add_item(product, quantity, discount_code=discount_code)
         return Response(
-            {"success": f"{product} has been added to cart"},
-            status=status.HTTP_200_OK,
+            {"error": f"Discount with code: {discount_code} does not apply to this product"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
-
+    
     @swagger_auto_schema(
         operation_summary="Delete a product from cart", tags=["products"]
     )
@@ -193,7 +216,12 @@ class ProductCartView(APIView):
         )
 
 
-class ReviewActions(GenericAPIView):
+class ProductReviewView(GenericAPIView):
+    """
+    Handle review actions for products.
+    
+    Provides methods to get all reviews for a product and to add a new review.
+    """
 
     permission_classes = [IsAuthenticated]
     serializer_class = ProductReviewSerializer
@@ -240,8 +268,12 @@ class ReviewActions(GenericAPIView):
         return Response({"error": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ReviewInstance(GenericAPIView):
+class ProductReviewInstance(GenericAPIView):
+    """
+    View to manage a single product review.
+    """
 
+    http_method_names = ["get", "put", "delete"]
     permission_classes = [IsAuthenticated]
     serializer_class = ProductReviewSerializer
 
@@ -258,7 +290,17 @@ class ReviewInstance(GenericAPIView):
             return product.reviews.get(pk=review_id)
         except Review.DoesNotExist:
             raise exceptions.NotFound({"error": "Review doesn't exist"})
-
+                
+    def dispatch(self, request, *args, **kwargs):
+        """
+        Checks object permissions for PUT and DELETE requests.
+        """
+        if request.method.lower() in ("put", "delete"):
+            self.check_object_permissions(
+                request, self.get_product_review(kwargs["product_id"], kwargs["review_id"])
+            )
+        return super().dispatch(request, *args, **kwargs)
+    
     @swagger_auto_schema(operation_summary="Get a product's review", tags=["reviews"])
     def get(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
@@ -270,12 +312,6 @@ class ReviewInstance(GenericAPIView):
     )
     def put(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
-
-        if request.user != review.user:
-            return Response(
-                {"error": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
-            )
-
         serializer = self.get_serializer(instance=review, data=request.data)
 
         if serializer.is_valid(raise_exception=True):
@@ -289,12 +325,6 @@ class ReviewInstance(GenericAPIView):
     )
     def delete(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
-
-        if request.user != review.user:
-            return Response(
-                {"error": "Access forbidden"}, status=status.HTTP_403_FORBIDDEN
-            )
-
         review.delete()
         return Response(
             {"success": "Review deleted"}, status=status.HTTP_204_NO_CONTENT

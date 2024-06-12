@@ -1,8 +1,13 @@
+import logging
 from autoslug import AutoSlugField
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils.crypto import get_random_string
 
 from .managers import MyUserManager
+
+
+logger = logging.getLogger(__name__)
 
 
 # Create your models here.
@@ -59,6 +64,15 @@ def get_sentinel_user():
     Raises:
         ObjectDoesNotExist: If there's an error creating the user object.
     """
-
-    user_detail = {"first_name": "deleted", "last_name": "None", "email": "deleted@none.com"}
-    return Customer.objects.create_user(**user_detail)
+    user_detail = {
+        "first_name": "deleted", "last_name": "user", "email": "deleted@none.com"
+    }
+    while Customer.objects.filter(**user_detail).exists():
+        string = get_random_string(5)
+        user_detail["email"] = f"deleted{string}@user.com" 
+    dummy_password = get_random_string(8)
+    user = Customer.objects.create_user(
+        **user_detail, is_active=False, password=dummy_password
+    )
+    logger.warning(f"Creating sentinel user: {user}")
+    return user
