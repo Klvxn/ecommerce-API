@@ -19,7 +19,7 @@ class CustomerCreateView(CreateAPIView):
     permission_classes = [AllowAny]
     serializer_class = CustomerSerializer
 
-    @swagger_auto_schema(operation_summary="Create a customer", tags=["customers"])
+    @swagger_auto_schema(operation_summary="Create a customer", tags=["Customer"])
     def post(self, request, *args, **kwargs):
         return super().create(request, args, kwargs)
 
@@ -42,15 +42,15 @@ class CustomerInstanceView(RetrieveUpdateDestroyAPIView):
             self.check_object_permissions(request, self.get_object())
         return super().dispatch(request, args, kwargs)
 
-    @swagger_auto_schema(operation_summary="Get a customer by ID", tags=["customers"])
+    @swagger_auto_schema(operation_summary="Get a customer by ID", tags=["Customer"])
     def get(self, request, *args, **kwargs):
         return super().retrieve(request, args, kwargs)
 
-    @swagger_auto_schema(operation_summary="Update a customer", tags=["customers"])
+    @swagger_auto_schema(operation_summary="Update a customer", tags=["Customer"])
     def put(self, request, *args, **kwargs):
         return super().update(request, args, kwargs)
 
-    @swagger_auto_schema(operation_summary="Delete a customer", tags=["customers"])
+    @swagger_auto_schema(operation_summary="Delete a customer", tags=["Customer"])
     def delete(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.is_active = False
@@ -58,7 +58,7 @@ class CustomerInstanceView(RetrieveUpdateDestroyAPIView):
 
 
 @swagger_auto_schema(
-    "get", operation_summary="Get a customer's orders", tags=["customers"]
+    "get", operation_summary="Get a customer's orders", tags=["Customer"]
 )
 @api_view(["GET"])
 def customer_orders(request, pk):

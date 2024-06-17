@@ -2,7 +2,8 @@ import braintree, json
 from django.conf import settings
 from django.template.response import TemplateResponse
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import exceptions, status
+from rest_framework import status
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -23,13 +24,10 @@ class Payment(APIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk):
-        try:
-            order = Order.objects.select_related("customer", "address").get(customer=self.request.user, pk=pk)
-            return order
-        except Order.DoesNotExist:
-            raise exceptions.NotFound("Order with ID not found")
+        order = Order.objects.select_related("customer", "address")
+        return get_object_or_404(order, customer=self.request.user, pk=pk)
 
-    @swagger_auto_schema(tags=["payment"])
+    @swagger_auto_schema(tags=["Payment"])
     def get(self, request, pk):
         order = self.get_object(pk)
         serializer = SimpleOrderSerializer(order)
@@ -40,7 +38,7 @@ class Payment(APIView):
         context = {"client_token": client_token, "order": data.items()}
         return TemplateResponse(request, "payment.html", context)
 
-    @swagger_auto_schema(tags=["payment"])
+    @swagger_auto_schema(tags=["Payment"])
     def post(self, request, pk):
         order = self.get_object(pk)
         customer = order.customer

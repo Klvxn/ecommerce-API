@@ -110,7 +110,7 @@ class Offer(models.Model):
         return self.applied_to == self.ALL_USERS
 
     @property
-    def to_vouchers(self):
+    def through_vouchers(self):
         return self.applied_to == self.THROUGH_VOUCHERS
 
 

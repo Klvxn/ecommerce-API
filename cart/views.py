@@ -1,17 +1,12 @@
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect
-from django.utils.decorators import method_decorator
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import status, reverse
+from rest_framework import status
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from catalogue.models import Discount, Product
-from customers.serializers import AddressSerializer
-from orders.models import Order, OrderItem
-from orders.serializers import OrderSerializer
+from catalogue.models import Product
 
 from .cart import Cart
 
@@ -44,114 +39,6 @@ class CartView(APIView):
             )
 
         return Response({"info": "Your cart is empty"}, status=status.HTTP_200_OK)
-
-    @swagger_auto_schema(
-        operation_summary="Create an order from user's cart items",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["action"],
-            properties={
-                "action": openapi.Schema(type=openapi.TYPE_STRING),
-                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
-                "address": openapi.Schema(type=openapi.TYPE_OBJECT)
-            },
-            example={
-                "action": "checkout",
-                "discount_code": "SAVE10",
-                "address": {
-                    "street_address": "123 Main St",
-                    "postal_code": "12345",
-                    "city": "Anytown",
-                    "state": "CA",
-                    "country": "Canada",
-                }
-            },
-        ),
-        responses={201: OrderSerializer, 400: "Bad request"},
-        tags=["cart"]
-    )
-    @method_decorator(login_required(login_url="/auth/login/"))
-    def post(self, request):
-        """
-        Handle POST request to create an order from the user's cart.
-
-        Args:
-            request (Request): The HTTP request containing user and cart data.
-
-        Returns:
-            Response: HTTP response with order details or error messages.
-        """
-        action = request.data.get("action")
-        discount_code = request.data.get("discount_code")
-        shipping_address = request.data.get("address")
-        user_cart = Cart(request)
-        
-        if action not in ("checkout", "save_order"):
-            return Response(
-                {"error": "Invalid data"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if len(user_cart) <= 0:
-            return Response(
-                {"error": "Can't create an order. Your cart is empty"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        customer = request.user
-        order = Order.objects.create(customer=customer)
-        
-        if discount_code:
-            discount = Discount.objects.for_order().filter(code=discount_code).first()
-            
-            if not discount or not discount.is_valid():    
-                return Response(
-                    {"error": "Invalid discount code or discount offer has expired"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-            if discount.minimum_order_value < user_cart.get_total_cost():
-                order.discount = discount
-                order.save()
-            
-            else:
-                return Response({
-                    "error": f"Your order total must be at least ${discount.minimum_order_value} to use this discount code"
-                }, status=status.HTTP_400_BAD_REQUEST)
-                
-        address = shipping_address or customer.address
-        if not address:
-            return Response(
-                {"error": "Shipping address was not provided"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        match action:
-            case "checkout":
-                if shipping_address:
-                    serializer = AddressSerializer(data=shipping_address)
-                    serializer.is_valid(raise_exception=True)
-                    order.address = serializer.save()
-                    order.save()
-                else:
-                    order.address = customer.address
-                    order.save()
-                    
-                OrderItem.create_from_cart(order, user_cart)
-                user_cart.clear()
-                context = {"request": request}
-                OrderSerializer(order, context=context).save()
-                # Redirect customer to the checkout page for payment
-                return redirect(reverse.reverse("payment", order.id))
-
-            case "save_order":
-                OrderItem.create_from_cart(order, user_cart)
-                user_cart.clear()
-                return Response(
-                    {
-                        "success": f"Your Order has been saved and your Order ID is {order.id}."
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
 
     @swagger_auto_schema(
         operation_summary="Update an item in the cart",
