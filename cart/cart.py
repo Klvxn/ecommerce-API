@@ -27,14 +27,14 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add_item(self, product, quantity, discount=None):
+    def add_item(self, product, quantity, offer=None):
         """
         Adds a product to the cart or updates its quantity if it already exists. Applies a discount if provided.
 
         Args:
             product (Product): The product to add or update.
             quantity (int): The quantity of the product.
-            discount (Discount, optional): The discount object to apply. Defaults to None.
+            offer (Offer, optional): The discount object to apply. Defaults to None.
 
         Returns:
             bool: True if the cart was successfully saved.
@@ -46,13 +46,17 @@ class Cart:
                 "price": str(product.price),
                 "quantity": quantity,
                 "discounted_price": None,
-                "shipping_fee": str(product.shipping_fee),
+                "shipping": str(product.shipping_fee) if product.shipping_fee else None,
             }
         else:
             self.update_item(product, quantity)
-        if discount is not None:
-            discounted_price = self._apply_product_discount(product, discount)
-            self.cart[product_id]["discounted_price"] = str(discounted_price)
+        if offer is not None:
+            if offer.for_product:
+                discounted_price = self._apply_product_discount(product, offer)
+                self.cart[product_id]["discounted_price"] = str(discounted_price)
+            elif offer.for_shipping and product.shipping_fee:
+                discounted_shipping = self._apply_shipping_discount(product, offer)
+                self.cart[product_id]["shipping"] = str(discounted_shipping)
         return self.save()
 
     def update_item(self, product, quantity):
@@ -105,22 +109,28 @@ class Cart:
         del self.session["cart"]
         self.save()
 
-    def _apply_product_discount(self, product, discount):
+    @staticmethod
+    def _apply_product_discount(product, offer):
         """
         Applies a discount to a specific product in the cart.
 
         Args:
             product (Product): The product to apply the discount to.
-            discount_code (str): The discount code to apply.
+            offer (Offer): The discount object to apply.
 
         Returns:
             Decimal | None: The discounted price if the discount is valid and applicable, otherwise None.
         """
         product_price = product.price
-        return discount.apply_discount(product_price)
+        return offer.apply_discount(product_price)
 
+    @staticmethod
+    def _apply_shipping_discount(product, offer):
+        product_shipping = product.shipping_fee
+        return offer.apply_discount(product_shipping)
 
-    def calculate_item_cost(self, item):
+    @staticmethod
+    def calculate_item_cost(item):
         return (
             Decimal(item["price"]) * item["quantity"]
             if not item["discounted_price"]
@@ -134,7 +144,12 @@ class Cart:
         Returns:
             Decimal: The total shipping fee.
         """
-        return sum(Decimal(item["shipping_fee"]) for item in self.cart.values())
+        return (
+            sum(Decimal(item["shipping"])
+            if item["shipping"] != "None"
+            else 0
+            for item in self.cart.values())
+        )
 
     def get_total_cost(self):
         """
