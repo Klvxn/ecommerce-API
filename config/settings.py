@@ -51,8 +51,9 @@ INSTALLED_APPS = [
     'customers.apps.CustomersConfig',
     'orders.apps.OrdersConfig',
     'payments.apps.PaymentsConfig',
-    'products.apps.ProductsConfig',
+    'catalogue.apps.CatalogueConfig',
     'vendors.apps.VendorsConfig',
+    'wishlist.apps.WishlistConfig',
 
     # Third party apps
     'debug_toolbar',
@@ -97,15 +98,15 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
 
 DATABASES = {
-    'default': {
+    'PG_DB': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ['DB_NAME'],
         'USER': os.environ['POSTGRES_USER'],
-        'PASSWORD': os.environ['PG_PASSWORD'],
+        'PASSWORD': os.environ['POSTGRES_PASSWORD'],
         'HOST': os.environ['DB_HOST'],
         'PORT': os.environ['DB_PORT'],
     },
-    'sqlite': {
+    'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite'
     }
