@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.db import models
 
 from catalogue.models import Product, Discount
+from catalogue.vouchers.models import Voucher
 from customers.models import Address
 
 
@@ -20,7 +21,7 @@ class Order(models.Model):
         AWAITING_PAYMENT = "awaiting_payment"
         DELIVERED = "delivered"
 
-    id = models.UUIDField("Order Id", primary_key=True, default=uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid4)
     customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
     address = models.ForeignKey(
         Address,
@@ -30,7 +31,9 @@ class Order(models.Model):
     )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    discount = models.ForeignKey(Discount, on_delete=models.SET_NULL, null=True)
+    discount = models.ForeignKey(
+        Discount, on_delete=models.SET_NULL, null=True, blank=True
+    )
     status = models.CharField(
         "Order status",
         choices=OrderStatus.choices,
@@ -72,9 +75,12 @@ class Order(models.Model):
 class OrderItem(models.Model):
     """Represents an individual item within an order."""
     order = models.ForeignKey(Order, related_name="order_items", on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, related_name="items", on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
-    discounted_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    discounted_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    # voucher = models.ForeignKey(Voucher, on_delete=models.SET_NULL, null=True, blank=True)
     quantity = models.PositiveIntegerField(default=1)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2)
 

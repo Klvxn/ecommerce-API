@@ -9,12 +9,13 @@ from .models import Order, OrderItem
 
 class OrderItemSerializer(serializers.ModelSerializer):
 
-    product = SimpleProductSerializer()
+    product = SimpleProductSerializer(read_only=True)
     subtotal = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = OrderItem
         fields = ["product", "quantity", "unit_price", "discounted_price", "subtotal"]
+        extra_kwargs = {"unit_price": {"required": False}}
 
     def get_subtotal(self, obj):
         return f"${obj.calculate_subtotal()}"
@@ -52,12 +53,10 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         data = validated_data.get("address")
-
         try:
             address, created = Address.objects.get_or_create(**data)
         except Address.MultipleObjectsReturned:
             address = Address.objects.filter(**data).first()
-
         instance.address = address
         instance.save()
         return instance

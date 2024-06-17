@@ -34,7 +34,7 @@ class Cart:
         Args:
             product (Product): The product to add or update.
             quantity (int): The quantity of the product.
-            offer (Offer, optional): The discount object to apply. Defaults to None.
+            offer (Offer, optional): The offer object to apply. Defaults to None.
 
         Returns:
             bool: True if the cart was successfully saved.
@@ -116,7 +116,7 @@ class Cart:
 
         Args:
             product (Product): The product to apply the discount to.
-            offer (Offer): The discount object to apply.
+            offer (Offer): The offer object to apply.
 
         Returns:
             Decimal | None: The discounted price if the discount is valid and applicable, otherwise None.
