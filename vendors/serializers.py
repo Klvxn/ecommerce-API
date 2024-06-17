@@ -1,17 +1,17 @@
 from rest_framework import serializers
 
-from products.serializers import ProductsListSerializer
+from catalogue.serializers import ProductsListSerializer
 
 from .models import Vendor
 
 
-class VendorSerializer(serializers.HyperlinkedModelSerializer):
+class VendorSerializer(serializers.ModelSerializer):
 
     total_products_sold = serializers.ReadOnlyField(source="get_total_products_sold")
 
     class Meta:
         model = Vendor
-        fields = ["id", "url", "brand_name", "about", "total_products_sold"]
+        fields = ["id", "url", "brand_name", "about", "total_products_sold", "customer"]
         extra_kwargs = {
             "url": {"lookup_field": "slug"}
         }

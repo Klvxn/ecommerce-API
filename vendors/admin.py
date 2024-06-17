@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from products.admin import ProductInline
+from catalogue.admin import ProductInline
 from .models import Vendor
 
 

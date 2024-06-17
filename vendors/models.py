@@ -25,6 +25,7 @@ class Vendor(models.Model):
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         self.customer.is_vendor = True
+        self.customer.is_staff = True
         self.customer.save()
 
     def products_count(self):
