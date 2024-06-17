@@ -1,17 +1,17 @@
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.utils.decorators import method_decorator
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import status
+from rest_framework import status, reverse
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from catalogue.models import Discount, Product
 from customers.serializers import AddressSerializer
 from orders.models import Order, OrderItem
 from orders.serializers import OrderSerializer
-from products.models import Discount, Product
 
 from .cart import Cart
 
@@ -56,7 +56,7 @@ class CartView(APIView):
                 "address": openapi.Schema(type=openapi.TYPE_OBJECT)
             },
             example={
-                "action": "create_order",
+                "action": "checkout",
                 "discount_code": "SAVE10",
                 "address": {
                     "street_address": "123 Main St",
@@ -86,7 +86,7 @@ class CartView(APIView):
         shipping_address = request.data.get("address")
         user_cart = Cart(request)
         
-        if action not in ("create_order", "save_order"):
+        if action not in ("checkout", "save_order"):
             return Response(
                 {"error": "Invalid data"}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -126,7 +126,7 @@ class CartView(APIView):
             )
             
         match action:
-            case "create_order":
+            case "checkout":
                 if shipping_address:
                     serializer = AddressSerializer(data=shipping_address)
                     serializer.is_valid(raise_exception=True)
@@ -139,9 +139,10 @@ class CartView(APIView):
                 OrderItem.create_from_cart(order, user_cart)
                 user_cart.clear()
                 context = {"request": request}
-                serializer = OrderSerializer(order, context=context)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-            
+                OrderSerializer(order, context=context).save()
+                # Redirect customer to the checkout page for payment
+                return redirect(reverse.reverse("payment", order.id))
+
             case "save_order":
                 OrderItem.create_from_cart(order, user_cart)
                 user_cart.clear()

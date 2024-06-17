@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('products', '0001_initial'),
+        ('catalogue', '0001_initial'),
         ('customers', '0001_initial'),
     ]
 
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                 ('cost_per_item', models.DecimalField(blank=True, decimal_places=2, max_digits=6)),
                 ('quantity', models.PositiveIntegerField(default=1)),
                 ('order', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='order_items', to='orders.order')),
-                ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='items', to='products.product')),
+                ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='items', to='catalogue.product')),
             ],
         ),
     ]

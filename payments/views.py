@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from orders.models import Order
 from orders.serializers import SimpleOrderSerializer
-from products.models import Product
+from catalogue.models import Product
 
 from .tasks import send_order_confirmation_email, write_trxn_to_csv
 

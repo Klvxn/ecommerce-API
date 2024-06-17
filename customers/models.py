@@ -21,6 +21,9 @@ class Address(models.Model):
     state = models.CharField(max_length=50)
     country = models.CharField(max_length=30)
 
+    class Meta:
+        verbose_name_plural = "addresses"
+
     def __str__(self):
         return f"{self.city}, {self.state}"
 
@@ -38,10 +41,13 @@ class Customer(AbstractUser):
     slug = AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(null=True)
     address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)
-    total_items_bought = models.PositiveIntegerField(null=True, default=0)
-    products_bought = models.ManyToManyField("products.Product")
+    total_items_bought = models.PositiveIntegerField(null=True, default=0, blank=True)
     is_vendor = models.BooleanField(default=False)
-    
+
+    products_bought = models.ManyToManyField("catalogue.Product", blank=True)
+    redeemed_vouchers = models.ManyToManyField(
+        "catalogue.Voucher", through="catalogue.RedeemedVoucher", blank=True
+    )
     username = None
 
     USERNAME_FIELD = "email"
@@ -51,6 +57,9 @@ class Customer(AbstractUser):
 
     def __str__(self):
         return self.email
+
+    def is_first_time_buyer(self, product):
+        return product not in self.products_bought.all()
 
 
 def get_sentinel_user():

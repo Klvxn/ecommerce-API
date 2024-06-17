@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("products", "0022_rename_stock_product_in_stock_and_more"),
+        ("catalogue", "0022_rename_stock_product_in_stock_and_more"),
         ("orders", "0006_orderitem_shipping_fee"),
     ]
 
@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
-                to="products.discount",
+                to="catalogue.discount",
             ),
         ),
     ]

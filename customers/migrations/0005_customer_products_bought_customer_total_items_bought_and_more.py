@@ -6,15 +6,15 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("products", "0016_alter_product_label_alter_review_user"),
         ("customers", "0004_alter_address_country_alter_customer_slug"),
+        ("catalogue", "0016_alter_product_label_alter_review_user"),
     ]
 
     operations = [
         migrations.AddField(
             model_name="customer",
             name="products_bought",
-            field=models.ManyToManyField(to="products.product"),
+            field=models.ManyToManyField(to="catalogue.product"),
         ),
         migrations.AddField(
             model_name="customer",

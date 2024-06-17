@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from customers.models import Address
 from customers.serializers import AddressSerializer
-from products.serializers import SimpleProductSerializer
+from catalogue.serializers import SimpleProductSerializer
 
 from .models import Order, OrderItem
 
@@ -10,14 +10,14 @@ from .models import Order, OrderItem
 class OrderItemSerializer(serializers.ModelSerializer):
 
     product = SimpleProductSerializer()
-    cost = serializers.SerializerMethodField(read_only=True)
+    subtotal = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = OrderItem
-        fields = ["product", "quantity", "unit_price", "discounted_price", "cost"]
+        fields = ["product", "quantity", "unit_price", "discounted_price", "subtotal"]
 
-    def get_cost(self, obj):
-        return f"${obj.calculate_cost()}"
+    def get_subtotal(self, obj):
+        return f"${obj.calculate_subtotal()}"
 
 
 class OrderSerializer(serializers.ModelSerializer):
@@ -66,14 +66,14 @@ class OrderSerializer(serializers.ModelSerializer):
 class SimpleOrderItemSerializer(serializers.ModelSerializer):
 
     product = serializers.StringRelatedField()
-    cost = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ["product", "quantity", "cost"]
+        fields = ["product", "quantity", "subtotal"]
 
-    def get_cost(self, obj):
-        return f"${obj.calculate_cost()}"
+    def get_subtotal(self, obj):
+        return f"${obj.calculate_subtotal()}"
 
 
 class SimpleOrderSerializer(serializers.ModelSerializer):
