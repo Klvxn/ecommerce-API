@@ -8,8 +8,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.generics import GenericAPIView, get_object_or_404
 
-from customers.serializers import AddressSerializer
 from cart.cart import Cart
+from customers.serializers import AddressSerializer
 from .models import Order, OrderItem
 from .serializers import OrderItemSerializer, OrderSerializer
 
@@ -81,7 +81,7 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
             Response: HTTP response with order details or error messages.
         """
         action = request.data.get("action")
-        discount_code = request.data.get("discount_code", "", ).upper()
+        discount_code = request.data.get("discount_code", "").upper()
         shipping_address = request.data.get("address")
         user_cart = Cart(request)
 
@@ -101,7 +101,12 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
             order = Order.objects.create(customer=customer)
 
             if discount_code:
-                pass
+                redeemed = order.redeem_order_discount(discount_code)
+                if not redeemed:
+                    return Response(
+                        {"error": "Invalid/Expired voucher code"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
             address = shipping_address or customer.address
             if not address:

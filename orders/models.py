@@ -1,10 +1,11 @@
+from decimal import Decimal as D
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.db import models
 
-from catalogue.models import Product, Discount
-from catalogue.vouchers.models import Voucher
+from catalogue.models import Product
+from catalogue.vouchers.models import Voucher, Offer
 from customers.models import Address
 
 
@@ -14,7 +15,7 @@ User = get_user_model()
 
 class Order(models.Model):
     """
-    Represents a customer's order, containing order details, associated customer, and status.
+    Represents a customer's order, containing order items, associated customer, and status.
     """
     class OrderStatus(models.TextChoices):
         PAID = "paid"
@@ -23,6 +24,9 @@ class Order(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid4)
     customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
+    offer = models.ForeignKey(
+        "catalogue.Offer", on_delete=models.SET_NULL, null=True, blank=True
+    )
     address = models.ForeignKey(
         Address,
         on_delete=models.SET_NULL,
@@ -31,11 +35,7 @@ class Order(models.Model):
     )
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-    discount = models.ForeignKey(
-        Discount, on_delete=models.SET_NULL, null=True, blank=True
-    )
     status = models.CharField(
-        "Order status",
         choices=OrderStatus.choices,
         default=OrderStatus.AWAITING_PAYMENT,
         max_length=16,
@@ -47,6 +47,15 @@ class Order(models.Model):
     def __str__(self):
         return str(self.id)
 
+    def redeem_order_discount(self, voucher_code):
+        # Order offers are only redeemable via voucher codes.
+        voucher = Voucher.objects.filter(code=voucher_code).first()
+        if not (voucher and voucher.is_valid()):
+            return None
+        self.offer = voucher.offer
+        self.save()
+        return self.offer
+
     def total_shipping_fee(self):
         """
         Calculates the total shipping fee for the order.
@@ -54,7 +63,10 @@ class Order(models.Model):
         Returns:
             Decimal: The total shipping fee.
         """
-        return sum(items.shipping_fee for items in self.order_items.all())
+        total_shipping = sum(items.shipping_fee for items in self.items.all())
+        if self.offer and self.offer.is_free_shipping:
+            total_shipping = self.offer.apply_discount(total_shipping)
+        return total_shipping
 
     def total_cost(self):
         """
@@ -63,29 +75,39 @@ class Order(models.Model):
         Returns:
             Decimal: The total cost of the order.
         """
-        order_cost = sum(items.calculate_subtotal() for items in self.order_items.all())
-        if self.discount:
-            discounted_price = self.discount.apply_discount(order_cost)
-            total_cost = discounted_price + self.total_shipping_fee()
-        else:
-            total_cost = order_cost + self.total_shipping_fee()
+        order_cost = sum(items.calculate_subtotal() for items in self.items.all())
+        if self.offer and not self.offer.is_free_shipping:
+            order_cost = self.offer.apply_discount(order_cost)
+        total_cost = order_cost + self.total_shipping_fee()
         return total_cost
+
+    def update_stock(self):
+        for item in self.items.all().select_related('product'):
+            item.product.in_stock -= item.quantity
+            item.product.quantity_sold += item.quantity
+            item.product.save()
+            self.customer.total_items_bought += item.quantity
+            if item.product not in self.customer.products_bought.all():
+                self.customer.products_bought.add(item.product)
+            self.customer.save()
 
 
 class OrderItem(models.Model):
     """Represents an individual item within an order."""
-    order = models.ForeignKey(Order, related_name="order_items", on_delete=models.CASCADE)
+    order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     discounted_price = models.DecimalField(
-        max_digits=10, decimal_places=2, null=True, blank=True
+        max_digits=10, decimal_places=2, default=D(0.00), blank=True
     )
-    # voucher = models.ForeignKey(Voucher, on_delete=models.SET_NULL, null=True, blank=True)
+    offer = models.ForeignKey(
+        "catalogue.Offer", on_delete=models.SET_NULL, null=True, blank=True
+    )
     quantity = models.PositiveIntegerField(default=1)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2)
 
     def __str__(self):
-        return str(self.id)
+        return f"Item {self.id} in Order {self.order}"
 
     def calculate_subtotal(self):
         """
@@ -95,19 +117,28 @@ class OrderItem(models.Model):
             Decimal: The total cost of the item.
         """
         return (
-            self.unit_price * self.quantity
+            self.cost_at_original_price()
             if not self.discounted_price
-            else self.cost_for_discounted_price()
+            else self.cost_at_discounted_price()
         )
     
-    def cost_for_discounted_price(self):
+    def cost_at_discounted_price(self):
         """
-        Calculates the total cost for this order item with the discounted price.
+        Calculates the total cost for this order item at the discounted price.
 
         Returns:
-            Decimal: The total cost with the discounted price.
+            Decimal: The total cost at the discounted price.
         """
         return self.discounted_price * self.quantity
+
+    def cost_at_original_price(self):
+        """
+        Calculates the total cost for this order item at the original product's price.
+
+        Returns:
+            Decimal: The total cost at the original price.
+        """
+        return self.unit_price * self.quantity
     
     @classmethod
     def create_from_cart(cls, order, user_cart):
