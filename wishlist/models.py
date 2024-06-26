@@ -29,13 +29,13 @@ class Wishlist(BaseModel):
         return f"{self.name} Wishlist"
 
     def add_to_wishlist(self, product):
-        if self.wishlistitem_set and self.wishlistitem_set.filter(product=product).exists():
+        if self.items and self.items.filter(product=product).exists():
             return
-        return self.wishlistitem_set.create(product=product)
+        return self.items.create(product=product)
 
     def remove_(self, product):
-        if self.wishlistitem_set and self.wishlistitem_set.filter(product=product).exists():
-            self.wishlistitem_set.filter(product=product).delete()
+        if self.items and self.items.filter(product=product).exists():
+            self.items.filter(product=product).delete()
         return
 
     @property
@@ -50,13 +50,14 @@ class Wishlist(BaseModel):
             return reverse("public_wishlist", self.id)
 
 class WishlistItem(BaseModel):
-    wishlist = models.ForeignKey(Wishlist, on_delete=models.CASCADE)
-    product = models.ForeignKey(
-        Product, on_delete=models.SET_NULL, null=True, unique=True
+    wishlist = models.ForeignKey(
+        Wishlist, on_delete=models.CASCADE, related_name="items"
     )
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
         return self.product.name
 
     class Meta:
         app_label = "catalogue"
+        unique_together = ("wishlist", "product")

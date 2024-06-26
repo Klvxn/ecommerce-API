@@ -5,7 +5,7 @@ from .models import Wishlist, WishlistItem
 
 class WishlistSerializer(WritableNestedModelSerializer):
 
-    wishlistitem_set = serializers.StringRelatedField(many=True)
+    items = serializers.StringRelatedField(many=True)
     owner = serializers.StringRelatedField()
 
     class Meta:
