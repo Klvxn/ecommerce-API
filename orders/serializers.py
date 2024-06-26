@@ -1,3 +1,4 @@
+from decimal import Decimal as D
 from rest_framework import serializers
 
 from customers.models import Address
@@ -25,8 +26,8 @@ class OrderSerializer(serializers.ModelSerializer):
 
     address = AddressSerializer()
     customer = serializers.StringRelatedField()
-    order_items = OrderItemSerializer(many=True, required=False)
-    url = serializers.HyperlinkedIdentityField(view_name="order-detail")
+    items = OrderItemSerializer(many=True, required=False)
+    url = serializers.HyperlinkedIdentityField(view_name="order_detail")
     total_discount = serializers.SerializerMethodField(read_only=True)
     total_shipping = serializers.SerializerMethodField(read_only=True)
     total_cost = serializers.SerializerMethodField(read_only=True)
@@ -39,7 +40,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer",
             "created",
             "address",
-            "order_items",
+            "items",
             "total_discount",
             "total_shipping",
             "total_cost",
@@ -47,8 +48,14 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_discount(self, obj):
-        return str(sum(item.cost_at_original_price() for item in obj.order_items.all()) -
-            sum(item.cost_at_discounted_price() for item in obj.order_items.all()))
+        return str(
+            sum(
+                item.cost_at_original_price()
+                for item in obj.items.all()
+                if item.cost_at_discounted_price() > D(0.00)
+            )
+            - sum(item.cost_at_discounted_price() for item in obj.items.all())
+        )
 
     def get_total_shipping(self, obj):
         return f"${obj.total_shipping_fee()}"
