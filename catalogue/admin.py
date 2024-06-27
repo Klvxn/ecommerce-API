@@ -1,8 +1,9 @@
 from django.contrib import admin, messages
 from django.utils.translation import ngettext
 
-from .models import Category, Product, Review
+from .models import Category, Product, ProductAttribute, ProductAttributeValue, Review
 from .vouchers.models import Offer, Voucher, RedeemedVoucher
+
 
 # Register your models here.
 @admin.register(Category)
@@ -19,6 +20,20 @@ class ReviewInline(admin.TabularInline):
     fk_name = "product"
 
 
+class AttributeValueInline(admin.TabularInline):
+
+    model = ProductAttributeValue
+    extra = 0
+    fk_name = "attribute"
+
+
+@admin.register(ProductAttribute)
+class ProductAttribute(admin.ModelAdmin):
+
+    inlines = [AttributeValueInline]
+    list_display = ["name", "product"]
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
 
@@ -26,7 +41,7 @@ class ProductAdmin(admin.ModelAdmin):
     inlines = [ReviewInline]
     list_display = ["name", "category", "in_stock", "price", "available"]
     list_editable = ["category", "available", "in_stock", "price"]
-    list_filter = ["available", "category", "created", "vendor"]
+    list_filter = ["available", "category", "created", "store"]
     preserve_filters = True
     search_fields = ["name"]
 
@@ -48,14 +63,9 @@ class ProductInline(admin.StackedInline):
 
     model = Product
     extra = 0
-    raw_id_fields = ["vendor"]
+    raw_id_fields = ["store"]
 
 
 admin.site.register(Offer)
 admin.site.register(Voucher)
 admin.site.register(RedeemedVoucher)
-# class OfferAdmin(admin.ModelAdmin):
-#
-#     inlines = [ProductInline]
-#     model = Offer
-    # fk_name = "eligible_products"

@@ -16,9 +16,10 @@ class ProductsListSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
     price = serializers.SerializerMethodField(read_only=True)
-    vendor = serializers.HyperlinkedRelatedField(
-        view_name="vendor-detail", lookup_field="slug", read_only=True
+    store = serializers.HyperlinkedRelatedField(
+        view_name="store-detail", lookup_field="slug", read_only=True
     )
+    attributes = serializers.StringRelatedField(many=True)
 
     class Meta:
         model = Product
@@ -26,15 +27,15 @@ class ProductsListSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "category",
-            "vendor",
+            "store",
             "description",
             "image_url",
             "available",
+            "attributes",
             "shipping_fee",
             "in_stock",
             "price",
             "quantity_sold",
-            # "label",
             "rating"
         ]
 
