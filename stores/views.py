@@ -67,8 +67,8 @@ class StoreViewSet(ModelViewSet):
     @swagger_auto_schema(operation_summary="Update a store", tags=["Store"])
     def update(self, request, *args, **kwargs):
         data = {
-            "about": request.data.get("about", self.get_object().about, ),
-            "brand_name": request.data.get("brand_name", self.get_object().brand_name, )
+            "about": request.data.get("about", self.get_object().about),
+            "brand_name": request.data.get("brand_name", self.get_object().brand_name)
         }
         serializer = self.get_serializer(self.get_object(), data=data)
         serializer.is_valid(raise_exception=True)

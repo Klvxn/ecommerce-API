@@ -5,7 +5,7 @@ class VendorOnly(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         if request.user.is_authenticated and request.user.is_vendor:
-            return bool(request.user == obj or request.user.vendor == obj.vendor)
+            return bool(request.user == obj.owner)
 
 
 class VendorCreateOnly(BasePermission):
