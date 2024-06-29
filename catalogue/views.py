@@ -1,23 +1,25 @@
+import json
 from datetime import datetime, timezone
 
 from django.shortcuts import redirect
+from django.db.models import Count
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework import exceptions, status
+from rest_framework.generics import GenericAPIView, get_object_or_404
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.generics import GenericAPIView, get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.pagination import LimitOffsetPagination
 
 from cart.cart import Cart
 from .models import Product, Review
 from .serializers import (
     ProductInstanceSerializer,
     ProductReviewSerializer,
-    ProductsListSerializer,
+    ProductsListSerializer, CartSerializer,
 )
 from .vouchers.models import Voucher, Offer
+
 
 
 # Create your views here.
@@ -27,8 +29,8 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
     """
     permission_classes = [AllowAny]
     serializer_class = ProductsListSerializer
-    filterset_fields = ["category", "available", "vendor"]
-    search_fields = ["name", "category__name", "label", "vendor__brand_name"]
+    filterset_fields = ["category", "available", "store"]
+    search_fields = ["name", "category__name", "label", "store__brand_name"]
 
     def get_queryset(self):
         queryset = Product.objects.all()
@@ -66,7 +68,6 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
 class ProductInstanceView(GenericAPIView):
     """
     Includes method to retrieve a single product.
-
     """
     http_method_names = ["get"]
     queryset = Product.objects.all()
@@ -84,32 +85,73 @@ class ProductInstanceView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProductCartView(APIView):
+class ProductCartView(GenericAPIView):
     """
-    View for adding, updating or removing a product from a user's cart.
+    View for adding a product to a customer's cart.
     """
 
     queryset = Product.objects.all()
     permission_classes = [AllowAny]
-    http_method_names = ["post", "delete"]
-
-    def get_object(self, pk):
-        try:
-            return get_object_or_404(Product, pk=pk)
-        except Product.DoesNotExist:
-            raise exceptions.NotFound({"error": "Product not found."})
+    http_method_names = ["post"]
+    serializer_class = CartSerializer
 
     def get_applicable_offers(self, offers, customer, order_value):
+        """
+        Determines the best applicable offer on a product based on the order value
+
+        Args:
+            offers (Queryset): A queryset of offers on a product
+            customer (Customer): The customer making the order
+            order_value (Decimal): The total value of the order
+
+        Returns:
+            Offer or str: The best applicable offer or "Not authenticated" if the customer
+            requires log in.
+        """
+
+        offers = offers.filter(minimum_order_value__lte=order_value)
         for offer in offers:
-            if order_value >= offer.minimum_order_value:
-                if offer.to_all_users:
+            if offer.to_all_customers:
+                return offer
+            if offer.to_first_time_buyers:
+                if not customer.is_authenticated:
+                    return "Not authenticated"
+                elif customer.is_first_time_buyer():
                     return offer
-                if offer.to_first_time_buyers:
-                    if not customer.is_authenticated:
-                        return "Not authenticated"
-                    elif customer.is_first_time_buyer():
-                        return offer
         return None
+
+    def get_selected_attributes(self, product_attrs, attributes):
+        """
+        Parses and validates selected attributes from the request data
+        Args:
+            product_attrs (ProductAttribute):
+            attributes (str): JSON string of the selected attributes
+
+        Returns:
+            dict: A dictionary of validated selected attributes
+
+        Raises:
+            ValueError: If any attribute is missing or invalid
+        """
+
+        attributes = json.loads(attributes)
+        multivalued = product_attrs.annotate(count=Count("values")).filter(count__gt=1)
+        single_valued = product_attrs.annotate(count=Count("values")).filter(count=1)
+        selected_attributes = {}
+        if single_valued:
+            for attr in single_valued:
+                selected_attributes[attr.name] = attr.values.values_list('value', flat=True)[0]
+        if multivalued:
+            for attr in multivalued:
+                if attr.name in attributes.keys():
+                    value = attributes[attr.name]
+                    if attr.values.filter(value=value).exists():
+                        selected_attributes[attr.name] = value
+                    else:
+                        raise ValueError(f"Invalid value '{value}' for attribute '{attr.name}'")
+                else:
+                    raise ValueError(f"Missing value for multivalued attribute '{attr.name}'")
+        return selected_attributes
 
     @swagger_auto_schema(
         operation_summary="Add a product to cart",
@@ -119,18 +161,36 @@ class ProductCartView(APIView):
             properties={
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
                 "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
-
+                "attribute_values": openapi.Schema(type=openapi.TYPE_OBJECT),
             },
-            example={"quantity": 12, "discount_code": "BLACKFRIDAY024"},
+            example={
+                "quantity": 12,
+                "discount_code": "BLACKFRIDAY024",
+                "attribute_values": {
+                    "size": "XL",
+                    "colour": "Green",
+                }
+            },
         ),
         tags=["Product"],
     )
     def post(self, request, pk):
-        product = self.get_object(pk)
         user_cart = Cart(request)
-        quantity = request.data.get("quantity", 1, )
-        discount_code = request.data.get("discount_code", "", ).upper()
+        quantity = int(request.data.get("quantity", 1))
+        discount_code = request.data.get("discount_code", "").upper()
+        attributes = request.data.get("attribute_values", {})
+
+        product = get_object_or_404(self.queryset, pk=pk)
         order_value = product.price * quantity
+        product_attrs = product.attributes.all()
+
+        selected_attrs = self.get_selected_attributes(product_attrs, attributes)
+
+        if quantity > product.in_stock:
+            return Response(
+                {"error": "The quantity cannot be more than product's stock"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Offers available and valid for the product
         product_offers = Offer.objects.filter(
@@ -139,36 +199,31 @@ class ProductCartView(APIView):
             valid_to__gte=datetime.now(timezone.utc)
         )
 
-        if quantity > product.in_stock:
-            return Response(
-                {"error": "The quantity cannot be more than product's stock"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Determine an applicable offer based on the user and order value
+        applicable_offer = self.get_applicable_offers(product_offers, request.user, order_value)
+        if applicable_offer == "Not authenticated":
+            return redirect(f"/auth/login/?next={self.request.path}")
 
-        # Process without discount code
+        # Process the cart without discount code
         if not discount_code:
-            applicable_offer = self.get_applicable_offers(product_offers, request.user, order_value)
-            if applicable_offer == "Not authenticated":
-                return redirect(f"/auth/login/?next={self.request.path}")
-            elif applicable_offer:
-                user_cart.add_item(product, quantity, applicable_offer)
-            else:
-                user_cart.add_item(product, quantity)
+            user_cart.add_item(product, quantity, applicable_offer)
+
+            # Attach the selected attributes to the product in the cart
+            if selected_attrs and not user_cart.attach_product_attributes(product, selected_attrs):
+                return Response(
+                    {"error": "Product is not in cart"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             return Response(
                 {"success": f"{product} has been added to cart"}, status=status.HTTP_200_OK,
             )
 
         # With discount code
         voucher = Voucher.objects.filter(code=discount_code).first()
-        if not voucher:
+        if not voucher or voucher.offer not in product_offers:
             return Response(
-                {"error": "Invalid voucher code"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if voucher.offer not in product_offers:
-            return Response(
-            {"error": f"Voucher with code: {discount_code} does not apply to this product"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"error": "Invalid or in-applicable voucher code"}, status=status.HTTP_400_BAD_REQUEST
             )
 
         is_valid, _msg = voucher.is_valid(request.user, order_value)
@@ -176,29 +231,17 @@ class ProductCartView(APIView):
             return Response({"error": _msg}, status=status.HTTP_400_BAD_REQUEST)
 
         user_cart.add_item(product, quantity, offer=voucher.offer)
-        return Response(
-            {"success": f"{product} has been added to cart with the applied discount"},
-            status=status.HTTP_200_OK,
-        )
 
-
-    @swagger_auto_schema(
-        operation_summary="Delete a product from cart", tags=["Product"]
-    )
-    def delete(self, request, pk):
-        product = self.get_object(pk)
-        user_cart = Cart(request)
-        deleted = user_cart.remove_item(product)
-
-        if deleted:
+        # Attach the selected attributes to the product in the cart
+        if selected_attrs and not user_cart.attach_product_attributes(product, selected_attrs):
             return Response(
-                {"success": f"{product} has been removed from cart."},
-                status=status.HTTP_204_NO_CONTENT,
+                {"error": "Product is not in cart"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         return Response(
-            {"error": f"{product} is not in cart."},
-            status=status.HTTP_400_BAD_REQUEST,
+            {"success": f"{product} has been added to cart"},
+            status=status.HTTP_200_OK,
         )
 
 

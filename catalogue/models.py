@@ -68,10 +68,7 @@ class Product(BaseModel):
         return self.name
 
     def save(self, *args, **kwargs):
-        if self.in_stock > 0:
-            self.available = True
-        else:
-            self.available = False
+        self.available = self.in_stock > 0
         super().save(*args, **kwargs)
         
     def update_rating(self):
@@ -128,9 +125,14 @@ class ProductAttributeValue(models.Model):
         ProductAttribute, on_delete=models.CASCADE, related_name="values"
     )
     value = models.CharField(max_length=255)
+    is_default = models.BooleanField(default=False)
 
     def __str__(self):
-        return f" {self.value}"
+        return self.value
+
+    def save(self, *args, **kwargs):
+        self.is_default = self.attribute.values.count() < 1
+        return super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "attribute value"

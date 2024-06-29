@@ -1,3 +1,5 @@
+import json
+
 from rest_framework import serializers
 
 from .models import Product, Review
@@ -67,3 +69,8 @@ class SimpleProductSerializer(serializers.ModelSerializer):
             "category",
             "rating",
         ]
+
+
+class CartSerializer(serializers.Serializer):
+    quantity = serializers.IntegerField(initial=1)
+    attribute_values = serializers.JSONField()
