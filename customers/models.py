@@ -37,13 +37,16 @@ class Customer(AbstractUser):
     This model overrides the default username field and required fields 
     to use email as the primary user identifier
     """
-    email = models.EmailField(("email address"), max_length=254, unique=True, db_index=True)
+
+    email = models.EmailField(
+        "email address", max_length=254, unique=True, db_index=True
+    )
     slug = AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(null=True)
-    address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True)
-    total_items_bought = models.PositiveIntegerField(null=True, default=0, blank=True)
+    address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True, blank=True)
     is_vendor = models.BooleanField(default=False)
 
+    products_bought_count = models.PositiveIntegerField(null=True, default=0, blank=True)
     products_bought = models.ManyToManyField("catalogue.Product", blank=True)
     redeemed_vouchers = models.ManyToManyField(
         "catalogue.Voucher", through="catalogue.RedeemedVoucher", blank=True

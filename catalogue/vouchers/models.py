@@ -7,38 +7,45 @@ from django.db import models
 
 
 class Offer(models.Model):
-
+    """
+    Represents a discount offer model. Offers can be applied to products or shipping fees,
+    and can be available to all users, first time buyers or those with voucher code.
+    """
     FREE_SHIPPING, PERCENTAGE_DISCOUNT, FIXED_DISCOUNT = (
         "Free shipping", "Percentage discount", "Fixed discount"
     )
-    DISCOUNT_TYPE = (
+
+    DISCOUNT_TYPE_CHOICES = (
         (FREE_SHIPPING, "Free shipping"),
-        (PERCENTAGE_DISCOUNT, "A certain percentage off of the customer's order/shipping fee"),
-        (FIXED_DISCOUNT, "A fixed amount off of the customer's order/shipping fee"),
+        (PERCENTAGE_DISCOUNT, "A certain percentage off of a product's price/shipping fee"),
+        (FIXED_DISCOUNT, "A fixed amount off of a product's price/shipping fee"),
     )
-    THROUGH_VOUCHERS, FIRST_TIME_BUYERS, ALL_USERS = ("Vouchers", "First time buyers", "All users")
-    APPLIED_TO = (
-        (THROUGH_VOUCHERS, "Accessible after a customer enters the vouchers code"),
-        (ALL_USERS, "The offer is applicable to all customers"),
-        (FIRST_TIME_BUYERS, "first time buyers only can redeem this offer"),
+
+    ALL_CUSTOMERS, FIRST_TIME_BUYERS, VOUCHERS = ("All customers", "First time buyers", "Vouchers")
+
+    AVAILABLE_TO_CHOICES = (
+        (ALL_CUSTOMERS, "The offer is available to all customers"),
+        (FIRST_TIME_BUYERS, "First time buyers only can redeem this offer"),
+        (VOUCHERS, "Accessible after a customer enters the vouchers code"),
     )
+
     TARGET = (
+        # If the offer is being applied to a product's price or the shipping fee
         ("Product", "product"),
         ("Shipping", "shipping")
     )
+
     title = models.CharField(max_length=50)
-    applied_to = models.CharField(max_length=50, choices=APPLIED_TO)
+    available_to = models.CharField(max_length=50, null=True, choices=AVAILABLE_TO_CHOICES)
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
-
-    # Discount benefits that comes with the offer
     target = models.CharField(max_length=50, choices=TARGET)
-    discount_type = models.CharField(max_length=50, choices=DISCOUNT_TYPE)
+    discount_type = models.CharField(max_length=50, choices=DISCOUNT_TYPE_CHOICES)
     discount_value = models.DecimalField(max_digits=10, decimal_places=2)
     total_discount_offered = models.DecimalField(
         max_digits=10, decimal_places=2, default=D(0.0), blank=True
     )
-    minimum_order_value = models.DecimalField(
+    min_order_value = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True
     )
 
@@ -61,9 +68,16 @@ class Offer(models.Model):
     def has_expired(self):
         return not (self.valid_from <= datetime.now(timezone.utc) <= self.valid_to)
 
+    def above_min_purchase(self, order_value=0):
+        if order_value and self.min_order_value is not None:
+            return order_value >= self.min_order_value
+        return True
+
     def apply_discount(self, price):
         if self.has_expired:
             return price
+        if self.is_free_shipping:
+            return D(0.00)
         if self.is_percentage_discount:
             return self.calculate_percent_discount(price)
         if self.is_fixed_discount:
@@ -103,18 +117,22 @@ class Offer(models.Model):
 
     @property
     def to_first_time_buyers(self):
-        return self.applied_to == self.FIRST_TIME_BUYERS
+        return self.available_to == self.FIRST_TIME_BUYERS
 
     @property
-    def to_all_users(self):
-        return self.applied_to == self.ALL_USERS
+    def to_all_customers(self):
+        return self.available_to == self.ALL_CUSTOMERS
 
     @property
     def through_vouchers(self):
-        return self.applied_to == self.THROUGH_VOUCHERS
+        return self.available_to == self.VOUCHERS
 
 
 class Voucher(models.Model):
+    """
+    Represents a voucher in the system. Vouchers are tied to offers and can have different
+    usage types
+    """
     SINGLE, MULTIPLE, ONCE_PER_CUSTOMER = "single", "multiple", "once per customer"
 
     VOUCHER_USAGE = (
@@ -130,7 +148,7 @@ class Voucher(models.Model):
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
     usage_type = models.CharField(max_length=50, choices=VOUCHER_USAGE, default=ONCE_PER_CUSTOMER)
-    max_usage = models.PositiveIntegerField()
+    max_usage_limit = models.PositiveIntegerField()
     num_of_usage = models.PositiveIntegerField(default=0, blank=True)
 
     class Meta:
@@ -147,8 +165,8 @@ class Voucher(models.Model):
         self.num_of_usage += 1
         self.save()
 
-    def check_usage_validity(self, customer=None):
-        if self.num_of_usage >= self.max_usage:
+    def within_usage_limits(self, customer=None):
+        if self.num_of_usage >= self.max_usage_limit:
             return False
         if self.usage_type == self.SINGLE and self.num_of_usage > 0:
             return False
@@ -159,31 +177,29 @@ class Voucher(models.Model):
                 return False
         return True
 
-    def above_mov(self, order_value=0):
-        if order_value and self.offer.minimum_order_value is not None:
-            return order_value >= self.offer.minimum_order_value
-        return True
-
     def within_validity_period(self):
-        return self.valid_from < datetime.now(timezone.utc) <= self.valid_to
+        return (
+            not self.offer.has_expired and
+            self.valid_from < datetime.now(timezone.utc) <= self.valid_to
+        )
 
     def is_valid(self, customer=None, order_value=None):
-        if not self.check_usage_validity(customer):
+        if not self.within_usage_limits(customer):
             return False, "Voucher has reached its usage limit"
         if not self.within_validity_period():
             return False, "Voucher offer has expired"
-        if not self.above_mov(order_value):
+        if not self.offer.above_min_purchase(order_value):
             return False, "Your order is below the required minimum purchase"
         return (
-                self.check_usage_validity(customer) and
-                self.above_mov(order_value) and
+                self.within_usage_limits(customer) and
+                self.offer.above_min_purchase(order_value) and
                 self.within_validity_period()
         ), "Voucher is Valid"
 
     def redeem(self, customer, order_value):
         valid, _ = self.is_valid(customer, order_value)
         if not valid:
-            raise ValidationError("This vouchers is no longer valid.")
+            raise ValidationError(_)
         self.update_usage_count()
         customer.redeemed_vouchers.add(
             self, through_defaults={"date_redeemed": datetime.now(timezone.utc)}

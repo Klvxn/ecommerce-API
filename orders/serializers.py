@@ -91,7 +91,7 @@ class SimpleOrderSerializer(serializers.ModelSerializer):
 
     address = AddressSerializer(required=False)
     customer = serializers.StringRelatedField()
-    order_items = SimpleOrderItemSerializer(many=True, required=False)
+    items = SimpleOrderItemSerializer(many=True, required=False)
     total_cost = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -101,7 +101,7 @@ class SimpleOrderSerializer(serializers.ModelSerializer):
             "customer",
             "created",
             "address",
-            "order_items",
+            "items",
             "total_cost",
             "status",
         ]
