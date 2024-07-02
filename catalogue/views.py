@@ -16,7 +16,7 @@ from .models import Product, Review
 from .serializers import (
     ProductInstanceSerializer,
     ProductReviewSerializer,
-    ProductsListSerializer, CartSerializer,
+    ProductsListSerializer, AddToCartSerializer,
 )
 from .vouchers.models import Voucher, Offer
 
@@ -93,7 +93,12 @@ class ProductCartView(GenericAPIView):
     queryset = Product.objects.all()
     permission_classes = [AllowAny]
     http_method_names = ["post"]
-    serializer_class = CartSerializer
+    serializer_class = AddToCartSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["product_id"] = self.kwargs["pk"]
+        return context
 
     def get_applicable_offers(self, offers, customer, order_value):
         """
@@ -109,8 +114,7 @@ class ProductCartView(GenericAPIView):
             requires log in.
         """
 
-        offers = offers.filter(minimum_order_value__lte=order_value)
-        for offer in offers:
+        for offer in offers.filter(min_order_value__lte=order_value):
             if offer.to_all_customers:
                 return offer
             if offer.to_first_time_buyers:
@@ -120,44 +124,12 @@ class ProductCartView(GenericAPIView):
                     return offer
         return None
 
-    def get_selected_attributes(self, product_attrs, attributes):
-        """
-        Parses and validates selected attributes from the request data
-        Args:
-            product_attrs (ProductAttribute):
-            attributes (str): JSON string of the selected attributes
-
-        Returns:
-            dict: A dictionary of validated selected attributes
-
-        Raises:
-            ValueError: If any attribute is missing or invalid
-        """
-
-        attributes = json.loads(attributes)
-        multivalued = product_attrs.annotate(count=Count("values")).filter(count__gt=1)
-        single_valued = product_attrs.annotate(count=Count("values")).filter(count=1)
-        selected_attributes = {}
-        if single_valued:
-            for attr in single_valued:
-                selected_attributes[attr.name] = attr.values.values_list('value', flat=True)[0]
-        if multivalued:
-            for attr in multivalued:
-                if attr.name in attributes.keys():
-                    value = attributes[attr.name]
-                    if attr.values.filter(value=value).exists():
-                        selected_attributes[attr.name] = value
-                    else:
-                        raise ValueError(f"Invalid value '{value}' for attribute '{attr.name}'")
-                else:
-                    raise ValueError(f"Missing value for multivalued attribute '{attr.name}'")
-        return selected_attributes
 
     @swagger_auto_schema(
         operation_summary="Add a product to cart",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=["quantity"],
+            required=["quantity", "attribute_values"],
             properties={
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
                 "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
@@ -176,21 +148,13 @@ class ProductCartView(GenericAPIView):
     )
     def post(self, request, pk):
         user_cart = Cart(request)
-        quantity = int(request.data.get("quantity", 1))
-        discount_code = request.data.get("discount_code", "").upper()
-        attributes = request.data.get("attribute_values", {})
-
         product = get_object_or_404(self.queryset, pk=pk)
-        order_value = product.price * quantity
-        product_attrs = product.attributes.all()
 
-        selected_attrs = self.get_selected_attributes(product_attrs, attributes)
-
-        if quantity > product.in_stock:
-            return Response(
-                {"error": "The quantity cannot be more than product's stock"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        quantity = serializer.validated_data["quantity"]
+        selected_attrs = serializer.validated_data["attribute_values"]
+        discount_code = serializer.validated_data.get("discount_code")
 
         # Offers available and valid for the product
         product_offers = Offer.objects.filter(
@@ -198,18 +162,25 @@ class ProductCartView(GenericAPIView):
             valid_from__lte=datetime.now(timezone.utc),
             valid_to__gte=datetime.now(timezone.utc)
         )
-
-        # Determine an applicable offer based on the user and order value
-        applicable_offer = self.get_applicable_offers(product_offers, request.user, order_value)
-        if applicable_offer == "Not authenticated":
-            return redirect(f"/auth/login/?next={self.request.path}")
+        order_value = product.price * quantity
 
         # Process the cart without discount code
         if not discount_code:
-            user_cart.add_item(product, quantity, applicable_offer)
+
+            # Get an offer that does not require a voucher code but open to customers
+            open_offer = self.get_applicable_offers(product_offers.filter(
+                available_to__in=["All customers", "First time buyers"]
+            ), request.user, order_value)
+
+            if open_offer == "Not authenticated":
+                return redirect(f"/auth/login/?next={self.request.path}")
+
+            (user_cart.add_item(product, quantity, open_offer)
+             if open_offer
+             else user_cart.add_item(product, quantity))
 
             # Attach the selected attributes to the product in the cart
-            if selected_attrs and not user_cart.attach_product_attributes(product, selected_attrs):
+            if not user_cart.attach_product_attributes(product, selected_attrs):
                 return Response(
                     {"error": "Product is not in cart"},
                     status=status.HTTP_400_BAD_REQUEST
@@ -221,9 +192,9 @@ class ProductCartView(GenericAPIView):
 
         # With discount code
         voucher = Voucher.objects.filter(code=discount_code).first()
-        if not voucher or voucher.offer not in product_offers:
+        if voucher.offer not in product_offers:
             return Response(
-                {"error": "Invalid or in-applicable voucher code"}, status=status.HTTP_400_BAD_REQUEST
+                {"error": "In-applicable voucher code"}, status=status.HTTP_400_BAD_REQUEST
             )
 
         is_valid, _msg = voucher.is_valid(request.user, order_value)
@@ -233,7 +204,7 @@ class ProductCartView(GenericAPIView):
         user_cart.add_item(product, quantity, offer=voucher.offer)
 
         # Attach the selected attributes to the product in the cart
-        if selected_attrs and not user_cart.attach_product_attributes(product, selected_attrs):
+        if not user_cart.attach_product_attributes(product, selected_attrs):
             return Response(
                 {"error": "Product is not in cart"},
                 status=status.HTTP_400_BAD_REQUEST
