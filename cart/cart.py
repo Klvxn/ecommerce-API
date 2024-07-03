@@ -1,3 +1,4 @@
+import hashlib
 from decimal import Decimal
 
 
@@ -21,14 +22,17 @@ class Cart:
 
     def __iter__(self):
         for item in self.cart.values():
-            # cost = self.calculate_item_cost(item)
-            # item["cost"] = f"${cost:.2f}"
             yield item
 
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add_item(self, product, quantity, offer=None):
+    def generate_item_id(self, product, attrs):
+        to_hash = f"{product.id}_{product.name}_{attrs}"
+        hash = hashlib.sha1(to_hash.encode()).hexdigest()
+        return f"{product.id}_{hash[-10:]}"
+
+    def add_item(self, product, quantity, offer=None, attrs=None):
         """
         Adds a product to the cart or updates its quantity if it already exists. Applies a discount if provided.
 
@@ -36,21 +40,24 @@ class Cart:
             product (Product): The product to add or update.
             quantity (int): The quantity of the product.
             offer (Offer, optional): The offer object to apply. Defaults to None.
+            attrs: (dict)
 
         Returns:
             bool: True if the cart was successfully saved.
         """
-        product_id = str(product.id)
-        item = self.cart.get(product_id, {
+        _item_id = self.generate_item_id(product, attrs)
+
+        item = self.cart.get(_item_id, {
             "product": product.name,
             "price": str(product.price),
             "quantity": 0,
-            "shipping": str(product.shipping_fee) if product.shipping_fee else None,
+            "shipping": str(product.shipping_fee) if product.shipping_fee else 0,
         })
-        item["quantity"] += quantity
+        item["quantity"] = quantity
+        item["selected_attrs"] = attrs
         if offer:
             item["discount"] = self.apply_offer(product, offer)
-        self.cart[product_id] = item
+        self.cart[_item_id] = item
         return self.save()
 
     def apply_offer(self, product, offer):
@@ -74,37 +81,19 @@ class Cart:
         discount.update({"offer_id": offer.id, "offer_type": offer.available_to})
         return discount
 
-    def attach_product_attributes(self, product, selected_attributes):
-        """
-        Attaches selected attributes to a product in the cart
 
-        Args:
-            product (Product):
-            selected_attributes (dict):
-
-        Returns:
-            bool: True if the attributes were attached or None if the product is
-            not in the cart
-        """
-        product_id = str(product.id)
-        if product_id in self.cart:
-            self.cart[product_id]["selected_attrs"] = selected_attributes
-            return self.save()
-        return None
-
-    def update_item(self, product, quantity):
+    def update_item(self, item_id, quantity):
         """
         Updates the quantity of a product in the cart.
 
         Args:
-            product (Product): The product to update.
+            item_id (str): The ID of the item to update.
             quantity (int): The new quantity of the product.
 
         Returns:
             bool: True if the cart was successfully saved.
         """
-        product_id = str(product.id)
-        self.cart[product_id]["quantity"] = quantity
+        self.cart[item_id]["quantity"] = quantity
         return self.save()
 
     def save(self):
@@ -117,20 +106,19 @@ class Cart:
         self.session.modified = True
         return True
 
-    def remove_item(self, product):
+    def remove_item(self, item_id):
         """
         Removes a product from the cart.
 
         Args:
-            product (Product): The product to remove.
+            item_id (str): The ID of the item to remove.
 
         Returns:
             bool: True if the cart was successfully saved.
         """
-        product_id = str(product.id)
-        if product_id not in self.cart:
+        if item_id not in self.cart:
             return False
-        del self.cart[product_id]
+        del self.cart[item_id]
         return self.save()
 
     def clear(self):
@@ -181,27 +169,40 @@ class Cart:
             else Decimal(item["discounted_price"]) * item["quantity"]
         )
 
-    def get_total_shipping_fee(self):
+    def total_shipping_fee(self):
         """
         Calculates the total shipping fee for all items in the cart.
 
         Returns:
             Decimal: The total shipping fee.
         """
-        return (
-            sum(Decimal(item["shipping"])
-                if not item["discount"]["discounted_shipping"]
-                else item["discount"]["discounted_shipping"]
-                for item in self.cart.values())
-        )
+        amount = []
+        discounted_shipping = 0
+        for item in self.cart.values():
+            if discount := item.get("discount"):
+                discounted_shipping = discount.get("discounted_shipping", Decimal(0))
+            shipping = item.get("shipping", 0)
+            (amount.append(discounted_shipping)
+                if discounted_shipping
+                else amount.append(shipping))
+        return sum(amount)
 
-    def get_total_cost(self):
+    def subtotal(self):
+        """
+        Calculates the cost of all items in the cart, excluding shipping.
+
+        Returns:
+            Decimal: The total cost.
+        """
+        return sum(self.calculate_item_cost(item)
+                         for item in self.cart.values())
+
+
+    def total_cost(self):
         """
         Calculates the total cost of all items in the cart, including shipping.
 
         Returns:
             Decimal: The total cost.
         """
-        total_cost = sum(self.calculate_item_cost(item)
-                         for item in self.cart.values())
-        return total_cost + self.get_total_shipping_fee()
+        return self.subtotal() + self.total_shipping_fee()

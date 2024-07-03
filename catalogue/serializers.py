@@ -2,7 +2,7 @@ from django.db.models import Count
 from rest_framework import serializers
 from rest_framework.generics import get_object_or_404
 
-from .models import Product, Review
+from .models import Product, ProductAttribute, Review
 from .vouchers.models import Voucher
 
 
@@ -15,6 +15,15 @@ class ProductReviewSerializer(serializers.ModelSerializer):
         fields = ["id", "user", "review", "image_url", "rating", "created"]
 
 
+class ProductAttrSerializer(serializers.ModelSerializer):
+
+    values = serializers.StringRelatedField(many=True)
+
+    class Meta:
+        model = ProductAttribute
+        fields = ["name", "values"]
+
+
 class ProductsListSerializer(serializers.ModelSerializer):
 
     category = serializers.StringRelatedField()
@@ -22,7 +31,7 @@ class ProductsListSerializer(serializers.ModelSerializer):
     store = serializers.HyperlinkedRelatedField(
         view_name="store-detail", lookup_field="slug", read_only=True
     )
-    attributes = serializers.StringRelatedField(many=True)
+    attributes = ProductAttrSerializer(many=True)
 
     class Meta:
         model = Product
@@ -64,12 +73,7 @@ class SimpleProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = [
-            "id",
-            "name",
-            "category",
-            "rating",
-        ]
+        fields = ["id", "name"]
 
 
 class AddToCartSerializer(serializers.Serializer):
@@ -93,8 +97,7 @@ class AddToCartSerializer(serializers.Serializer):
 
     def validate_discount_code(self, data):
         if data:
-            data = data.upper()
-            voucher = Voucher.objects.filter(code=data).first()
+            voucher = Voucher.objects.filter(code=data.upper()).first()
             if not voucher or not voucher.within_validity_period():
                 raise serializers.ValidationError("Invalid or expired voucher code")
         return data
@@ -105,7 +108,7 @@ class AddToCartSerializer(serializers.Serializer):
         multi_valued_attrs = product.attributes.annotate(count=Count("values")).filter(count__gt=1)
         if single_valued_attrs:
             for attr in single_valued_attrs:
-                data[attr.name] = attr.values.values_list('value', flat=True)[0]
+                data[attr.name] = attr.values.values_list("value", flat=True)[0]
         if not data:
             if multi_valued_attrs:
                 raise serializers.ValidationError(

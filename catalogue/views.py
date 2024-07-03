@@ -2,7 +2,6 @@ import json
 from datetime import datetime, timezone
 
 from django.shortcuts import redirect
-from django.db.models import Count
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework import exceptions, status
@@ -175,16 +174,9 @@ class ProductCartView(GenericAPIView):
             if open_offer == "Not authenticated":
                 return redirect(f"/auth/login/?next={self.request.path}")
 
-            (user_cart.add_item(product, quantity, open_offer)
+            (user_cart.add_item(product, quantity, open_offer, attrs=selected_attrs)
              if open_offer
-             else user_cart.add_item(product, quantity))
-
-            # Attach the selected attributes to the product in the cart
-            if not user_cart.attach_product_attributes(product, selected_attrs):
-                return Response(
-                    {"error": "Product is not in cart"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+             else user_cart.add_item(product, quantity, attrs=selected_attrs))
 
             return Response(
                 {"success": f"{product} has been added to cart"}, status=status.HTTP_200_OK,
@@ -201,15 +193,7 @@ class ProductCartView(GenericAPIView):
         if not is_valid:
             return Response({"error": _msg}, status=status.HTTP_400_BAD_REQUEST)
 
-        user_cart.add_item(product, quantity, offer=voucher.offer)
-
-        # Attach the selected attributes to the product in the cart
-        if not user_cart.attach_product_attributes(product, selected_attrs):
-            return Response(
-                {"error": "Product is not in cart"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+        user_cart.add_item(product, quantity, offer=voucher.offer, attrs=selected_attrs)
         return Response(
             {"success": f"{product} has been added to cart"},
             status=status.HTTP_200_OK,

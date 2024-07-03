@@ -1,12 +1,9 @@
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
-from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from catalogue.models import Product
 
 from .cart import Cart
 
@@ -26,14 +23,14 @@ class CartView(APIView):
     def get(self, request, *args, **kwargs):
         user_cart = Cart(request)
         if user_cart.cart:
-            data = [item for item in user_cart]
 
             return Response(
                 {
-                    "Cart items": data,
+                    "Items": user_cart.cart,
                     "Total items": len(user_cart),
-                    "Shipping": f"${user_cart.get_total_shipping_fee()}",
-                    "Total cost": f"${user_cart.get_total_cost()}",
+                    "subtotal": f"${user_cart.subtotal()}",
+                    "Shipping": f"${user_cart.total_shipping_fee()}",
+                    "Total": f"${user_cart.total_cost()}",
                 },
                 status=status.HTTP_200_OK,
             )
@@ -44,13 +41,13 @@ class CartView(APIView):
         operation_summary="Update an item in the cart",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=["product_name", "quantity"],
+            required=["item_id", "quantity"],
             properties={
-                "product_name": openapi.Schema(type=openapi.TYPE_STRING),
+                "item_id": openapi.Schema(type=openapi.TYPE_STRING),
                 "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
             },
             example={
-                "product_name": "Logitech Wireless Mouse",
+                "item_id": "3_d845d16d",
                 "quantity": 12
             },
         ),
@@ -58,25 +55,23 @@ class CartView(APIView):
     )
     def put(self, request):
         user_cart = Cart(request)
-        product_name = request.data.get("product_name")
+        item_id = request.data.get("item_id")
         quantity = request.data.get("quantity")
 
-        if not product_name or not quantity:
+        if not item_id or not quantity:
             return Response(
                 {"error": "Both product_name and quantity are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        product = get_object_or_404(Product, name=product_name)
-                    
-        if str(product.id) in user_cart.cart.keys():
-            user_cart.update_item(product, quantity=quantity)
+        if item_id in  user_cart.cart:
+            user_cart.update_item(item_id, quantity=quantity)
             return Response(
                 {"success": "Cart updated"}, status=status.HTTP_200_OK
             )
 
         return Response(
-            {"error": f"This item: {product_name} is not in your cart"},
+            {"error": f"This item: {item_id} is not in your cart"},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -85,9 +80,9 @@ class CartView(APIView):
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                "product_name": openapi.Schema(type=openapi.TYPE_STRING),
+                "item_id": openapi.Schema(type=openapi.TYPE_STRING),
             },
-            example={"product_name": "Wireless Keyboard"},
+            example={"item_id": "3_d845d16d"},
         ),
         tags=["cart"]
     )
@@ -99,10 +94,8 @@ class CartView(APIView):
                 {"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT
             )
 
-        for product_name in request.data.keys():
-            product = get_object_or_404(Product, name=product_name)
-            removed = user_cart.remove_item(product)
-
+        for item_id in request.data:
+            removed = user_cart.remove_item(item_id)
             if removed:
                 return Response(
                     {"success": "Item has been removed from cart"},
