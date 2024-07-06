@@ -4,10 +4,11 @@ from .models import Order, OrderItem
 
 
 # Register your models here.
-class OrderItemInline(admin.TabularInline):
+class OrderItemInline(admin.StackedInline):
 
     model = OrderItem
     raw_id_fields = ['product']
+    min_num = 1
     extra = 0
 
  
@@ -15,6 +16,7 @@ class OrderItemInline(admin.TabularInline):
 class OrderAdmin(admin.ModelAdmin):
 
     inlines = [OrderItemInline]
-    list_display = ['id', 'customer', 'created', 'updated', 'status']
+    list_display = ['id', 'customer', 'status', 'created', 'updated']
     list_filter = ['status', 'created', 'updated']
+    readonly_fields = ['id', 'customer']
     list_per_page = 10
