@@ -36,6 +36,7 @@ class Offer(models.Model):
     )
 
     title = models.CharField(max_length=50)
+    store = models.ForeignKey("stores.Store", on_delete=models.CASCADE, default=2)
     available_to = models.CharField(max_length=50, null=True, choices=AVAILABLE_TO_CHOICES)
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
@@ -144,7 +145,9 @@ class Voucher(models.Model):
     name = models.CharField(max_length=50)
     description = models.TextField()
     code = models.CharField(max_length=50, unique=True)
-    offer = models.ForeignKey(Offer, on_delete=models.CASCADE)
+    offer = models.ForeignKey(
+        Offer, on_delete=models.CASCADE, limit_choices_to={"available_to": "Vouchers"}
+    )
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
     usage_type = models.CharField(max_length=50, choices=VOUCHER_USAGE, default=ONCE_PER_CUSTOMER)
