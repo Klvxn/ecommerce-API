@@ -2,7 +2,7 @@ from decimal import Decimal as D
 from rest_framework import serializers
 
 from customers.models import Address
-from customers.serializers import AddressSerializer
+from customers.serializers import AddressSerializer, SimpleCustomerSerializer
 from catalogue.serializers import SimpleProductSerializer
 
 from .models import Order, OrderItem
@@ -15,7 +15,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ["product", "quantity", "unit_price", "discounted_price", "subtotal"]
+        exclude = ["order"]
         extra_kwargs = {"unit_price": {"required": False}}
 
     def get_subtotal(self, obj):
@@ -25,7 +25,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
 
     address = AddressSerializer()
-    customer = serializers.StringRelatedField()
+    customer = SimpleCustomerSerializer()
     items = OrderItemSerializer(many=True, required=False)
     url = serializers.HyperlinkedIdentityField(view_name="order_detail")
     total_discount = serializers.SerializerMethodField(read_only=True)
@@ -39,6 +39,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "url",
             "customer",
             "created",
+            "updated",
             "address",
             "items",
             "total_discount",
@@ -48,7 +49,7 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_discount(self, obj):
-        return str(
+        return float(
             sum(
                 item.cost_at_original_price()
                 for item in obj.items.all()
@@ -58,10 +59,10 @@ class OrderSerializer(serializers.ModelSerializer):
         )
 
     def get_total_shipping(self, obj):
-        return f"${obj.total_shipping_fee()}"
+        return float(obj.total_shipping_fee())
 
     def get_total_cost(self, obj):
-        return f"${obj.total_cost()}"
+        return float(obj.total_cost())
 
     def update(self, instance, validated_data):
         data = validated_data.get("address")
@@ -84,7 +85,7 @@ class SimpleOrderItemSerializer(serializers.ModelSerializer):
         fields = ["product", "quantity", "subtotal"]
 
     def get_subtotal(self, obj):
-        return f"${obj.calculate_subtotal()}"
+        return float(obj.calculate_subtotal())
 
 
 class SimpleOrderSerializer(serializers.ModelSerializer):
@@ -107,4 +108,4 @@ class SimpleOrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_total_cost(self, obj):
-        return f"${obj.total_cost()}"
+        return float(obj.total_cost())

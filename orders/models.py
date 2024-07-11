@@ -4,7 +4,7 @@ from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.db import models
 
-from catalogue.models import Product
+from catalogue.models import BaseModel, Product
 from catalogue.vouchers.models import Voucher, Offer
 from customers.models import Address
 
@@ -13,7 +13,7 @@ from customers.models import Address
 User = get_user_model()
 
 
-class Order(models.Model):
+class Order(BaseModel):
     """
     Represents a customer's order, containing order items, associated customer, and status.
     """
@@ -24,17 +24,12 @@ class Order(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid4)
     customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
-    offer = models.ForeignKey(
-        "catalogue.Offer", on_delete=models.SET_NULL, null=True, blank=True
-    )
     address = models.ForeignKey(
         Address,
         on_delete=models.SET_NULL,
         verbose_name="Shipping address",
         null=True
     )
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
     status = models.CharField(
         choices=OrderStatus.choices,
         default=OrderStatus.AWAITING_PAYMENT,
@@ -47,14 +42,40 @@ class Order(models.Model):
     def __str__(self):
         return str(self.id)
 
-    def redeem_order_discount(self, voucher_code):
-        # Order offers are only redeemable via voucher codes.
-        voucher = Voucher.objects.filter(code=voucher_code).first()
-        if not (voucher and voucher.is_valid()):
-            return None
-        self.offer = voucher.offer
-        self.save()
-        return self.offer
+    def redeem_voucher_offer(self, voucher_code):
+        """
+        Apply a voucher offer to the order items in an order
+
+        This method checks each item in the order to see if the provided voucher code
+        applies to any of the products in the order. If the voucher is valid and applicable,
+        the discount is applied.
+
+        Args:
+            voucher_code (str): The code of the voucher to redeem
+
+        Returns:
+            offer (Offer or None): The offer applied to the order items if voucher is
+            valid. None if the voucher is invalid
+        """
+        offer = None
+        for item in self.items.all():
+            # Fetch the voucher that matches the provided code and
+            # is eligible for the product in the item
+            voucher = Voucher.objects.filter(
+                code=voucher_code.upper(), offer__eligible_products=item.product
+            ).first()
+            if not (voucher and voucher.is_valid()):
+                return None
+            # Get the offer associated with the voucher and apply the discounts
+            offer = voucher.offer
+            if offer.for_product:
+                item.discounted_price = offer.apply_discount(item.unit_price)
+            if offer.for_shipping:
+                item.discounted_shipping = offer.apply_discount(item.shipping_fee)
+            # Save the offer to the item
+            item.offer = offer
+            item.save()
+        return offer
 
     def total_shipping_fee(self):
         """
@@ -63,9 +84,7 @@ class Order(models.Model):
         Returns:
             Decimal: The total shipping fee.
         """
-        total_shipping = sum(items.shipping_fee for items in self.items.all())
-        if self.offer and self.offer.is_free_shipping:
-            total_shipping = self.offer.apply_discount(total_shipping)
+        total_shipping = sum(item.get_shipping() for item in self.items.all())
         return total_shipping
 
     def total_cost(self):
@@ -76,35 +95,29 @@ class Order(models.Model):
             Decimal: The total cost of the order.
         """
         order_cost = sum(items.calculate_subtotal() for items in self.items.all())
-        if self.offer and not self.offer.is_free_shipping:
-            order_cost = self.offer.apply_discount(order_cost)
         total_cost = order_cost + self.total_shipping_fee()
         return total_cost
 
-    def update_stock(self):
-        for item in self.items.all().select_related('product'):
-            item.product.in_stock -= item.quantity
-            item.product.quantity_sold += item.quantity
-            item.product.save()
-            self.customer.total_items_bought += item.quantity
-            if item.product not in self.customer.products_bought.all():
-                self.customer.products_bought.add(item.product)
-            self.customer.save()
 
-
-class OrderItem(models.Model):
-    """Represents an individual item within an order."""
+class OrderItem(BaseModel):
+    """
+    Represents an individual item within an order.
+    """
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    selected_attrs = models.JSONField(null=True, blank=True)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
     discounted_price = models.DecimalField(
-        max_digits=10, decimal_places=2, default=D(0.00), blank=True
+        max_digits=10, decimal_places=2, default=D(0.0)
     )
+    quantity = models.PositiveIntegerField(default=1)
     offer = models.ForeignKey(
         "catalogue.Offer", on_delete=models.SET_NULL, null=True, blank=True
     )
-    quantity = models.PositiveIntegerField(default=1)
-    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2)
+    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True)
+    discounted_shipping = models.DecimalField(
+        max_digits=10, decimal_places=2, default=D(0.0)
+    )
 
     def __str__(self):
         return f"Item {self.id} in Order {self.order}"
@@ -139,6 +152,20 @@ class OrderItem(models.Model):
             Decimal: The total cost at the original price.
         """
         return self.unit_price * self.quantity
+
+    def get_shipping(self):
+        """
+        Checks if an order item has a discounted shipping fee. Otherwise, it returns
+        the regular shipping fee.
+
+        Returns:
+            Decimal: The applicable shipping fee for the order item.
+        """
+        return (
+            self.discounted_shipping
+            if self.discounted_shipping
+            else self.shipping_fee
+        )
     
     @classmethod
     def create_from_cart(cls, order, user_cart):
@@ -154,12 +181,22 @@ class OrderItem(models.Model):
         """
         for item in user_cart:
             product = Product.objects.get(name=item["product"])
+
+            offer_id = None
+            discounted_price = discounted_shipping = 0
+            if discount:= item.get("discount"):
+                offer_id = discount.get("offer_id")
+                discounted_price = discount.get("discounted_price", 0)
+                discounted_shipping = discount.get("discounted_price", 0)
+
             OrderItem.objects.create(
                 order=order,
                 product=product,
                 quantity=item.get("quantity"),
                 unit_price=item.get("price"),
-                discounted_price=item.get("discounted_price"),
-                shipping_fee=item.get("shipping_fee")
+                discounted_price=D(discounted_price),
+                discounted_shipping=D(discounted_shipping),
+                offer_id=offer_id,
+                shipping_fee=item.get("shipping"),
+                selected_attrs=item.get("selected_attrs")
             )
-        

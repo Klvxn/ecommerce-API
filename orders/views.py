@@ -19,7 +19,7 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
 
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
-    filterset_fields = ['status']
+    filterset_fields = ["status"]
 
     def get_queryset(self):
         queryset = Order.objects.filter(customer=self.request.user)
@@ -81,15 +81,17 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
             Response: HTTP response with order details or error messages.
         """
         action = request.data.get("action")
-        discount_code = request.data.get("discount_code", "").upper()
+        discount_code = request.data.get("discount_code")
         shipping_address = request.data.get("address")
         user_cart = Cart(request)
 
+        # Validate the action type
         if action not in ("checkout", "save_order"):
             return Response(
                 {"error": "Invalid data"}, status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Ensure the user's cart is not empty
         if len(user_cart) <= 0:
             return Response(
                 {"error": "Can't create an order. Your cart is empty"},
@@ -100,22 +102,23 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
         with transaction.atomic():
             order = Order.objects.create(customer=customer)
 
+            # Apply discount if a discount code is provided
             if discount_code:
-                redeemed = order.redeem_order_discount(discount_code)
-                if not redeemed:
+                if not order.redeem_voucher_offer(discount_code):
                     return Response(
                         {"error": "Invalid/Expired voucher code"},
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-            address = shipping_address or customer.address
-            if not address:
+            # Validate that a shipping address is provided
+            if not (shipping_address or customer.address):
                 return Response(
                     {"error": "Shipping address was not provided"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             match action:
+                # Handle checkout action
                 case "checkout":
                     if shipping_address:
                         serializer = AddressSerializer(data=shipping_address)
@@ -125,12 +128,13 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
                     else:
                         order.address = customer.address
                         order.save()
-
+                    # Create order times from the cart
                     OrderItem.create_from_cart(order, user_cart)
                     user_cart.clear()
                     # Redirect customer to the checkout page for payment
-                    return redirect(reverse.reverse("payment", order.id))
+                    return redirect(reverse.reverse("payment", [order.id]))
 
+                # Handle save_order action
                 case "save_order":
                     OrderItem.create_from_cart(order, user_cart)
                     user_cart.clear()
@@ -152,7 +156,7 @@ class OrderInstanceView(GenericAPIView):
         return get_object_or_404(self.get_queryset(), id=id)
 
     @swagger_auto_schema(
-        operation_summary="Get an order by ID",
+        operation_summary="Get an order",
         responses={200: OrderItemSerializer(), 404: "Not Found"},
         tags=["Order"]
     )
@@ -162,21 +166,44 @@ class OrderInstanceView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="Update an order with a shipping address.",
-        request_body=AddressSerializer,
+        operation_summary="Update an order with a shipping address or voucher code",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
+                "address": AddressSerializer
+            },
+            example={
+                "discount_code": "SAVE10",
+                "address": {
+                    "street_address": "123 Main St",
+                    "postal_code": "12345",
+                    "city": "Anytown",
+                    "state": "CA",
+                    "country": "Canada",
+                }
+            },
+        ),
         responses={201: OrderSerializer, 400: "Bad Request"},
         tags=["Order"],
     )
     def put(self, request, pk):
         order = self.get_object(pk)
-        data = {"address": request.data}
+        # Only pending orders can be modified
+        if order.status != "awaiting_payment":
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        address = request.data.get("address")
+        # Apply discount if a discount code is provided
+        if voucher_code := request.data.get("discount_code"):
+            order.redeem_voucher_offer(voucher_code)
+        data = {"address": address}
         serializer = OrderSerializer(instance=order, data=data)
         serializer.context["request"] = request
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @swagger_auto_schema(operation_summary="Delete an order by ID.", tags=["Order"])
+    @swagger_auto_schema(operation_summary="Delete an order", tags=["Order"])
     def delete(self, request, pk):
         order = self.get_object(pk)
         order.delete()
@@ -196,6 +223,24 @@ class OrderItemView(GenericAPIView):
     def get_order_item(self, order_id, order_item_id):
         qs = self.get_queryset()
         return  get_object_or_404(qs, id=order_item_id, order_id=order_id)
+
+    def check_order_editable(self, customer, order_id):
+        """
+        Checks if an order's item can be modified based on its status.
+        Only orders with a status of "awaiting_payment" can be edited.
+
+        Args:
+            customer (Customer): The customer to whom the order belongs to.
+            order_id (UUID): The ID of the order to be modified
+
+        Returns:
+            HttpResponse 403: If the order can't if the order can't be modified.
+            None: If the order is still awaiting payment.
+
+        """
+        order = get_object_or_404(Order.objects.filter(customer=customer), id=order_id)
+        if order.status != "awaiting_payment":
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
     @swagger_auto_schema(
         operation_summary="Get an item from an order",
@@ -223,6 +268,7 @@ class OrderItemView(GenericAPIView):
         tags=["Order"],
     )
     def put(self, request, order_id, item_id):
+        self.check_order_editable(request.user, order_id)
         order_item = self.get_order_item(order_id, item_id)
         # Only the quantity of the item can be updated
         data = {"quantity": request.data.get("quantity")}
@@ -235,6 +281,7 @@ class OrderItemView(GenericAPIView):
         operation_summary="Delete an item from a user's order", tags=["Order"],
     )
     def delete(self, request, order_id, item_id):
+        self.check_order_editable(request.user, order_id)
         order_item = self.get_order_item(order_id, item_id)
         order_item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
