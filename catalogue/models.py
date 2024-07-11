@@ -4,7 +4,6 @@ from django.utils.text import slugify
 
 from customers.models import get_sentinel_user
 from stores.models import Store
-from .vouchers.models import Voucher, Offer
 
 
 # Create your models here.
@@ -45,11 +44,10 @@ class Product(BaseModel):
     """
     Model representing a product.
     """
-    name = models.CharField(max_length=100, unique=True, db_index=True)
+    name = models.CharField(max_length=255, unique=True, db_index=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
     description = models.TextField()
     store = models.ForeignKey(Store, on_delete=models.CASCADE, null=True)
-    image_url = models.URLField()
     in_stock = models.PositiveIntegerField()
     quantity_sold = models.PositiveIntegerField(default=0)
     price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -62,7 +60,7 @@ class Product(BaseModel):
     objects = models.Manager()
 
     class Meta:
-        ordering = ["category", "name"]
+        ordering = ["-quantity_sold", "-rating"]
 
     def __str__(self):
         return self.name
@@ -96,33 +94,53 @@ class Product(BaseModel):
         rating_sum, reviews_count = results.values()
         return rating_sum / reviews_count if reviews_count else None
 
-    def get_latest_reviews(self):
-        """
-        Get the latest reviews for the product.
 
-        Returns:
-            QuerySet: The latest 10 reviews for the product.
-        """
-        return self.reviews.values("id", "user__email", "review", "created").order_by("-created")[:10]
+class Image(models.Model):
+
+    image = models.ImageField()
+    image_url = models.URLField()
+    title = models.CharField(max_length=255, null=True)
+    is_primary = models.BooleanField(default=False)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.image_url = self.image.url
+        super().save(*args, **kwargs)
+
+
+class ProductImage(Image):
+
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="image_set"
+    )
+    image = models.ImageField(upload_to="products/")
 
 
 class ProductAttribute(models.Model):
+
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="attributes"
     )
     name = models.CharField(max_length=255)
 
     def __str__(self):
-        return f"{self.name}: {self.values.values_list('value', flat=True)}"
+        return self.name
 
     class Meta:
         verbose_name = "product attribute"
         unique_together = ("product", "name")
 
+    def attribute_values(self):
+        return list(self.value_set.values_list("value", flat=True))
 
 class ProductAttributeValue(models.Model):
+
     attribute = models.ForeignKey(
-        ProductAttribute, on_delete=models.CASCADE, related_name="values"
+        ProductAttribute, on_delete=models.CASCADE, related_name="value_set"
     )
     value = models.CharField(max_length=255)
     is_default = models.BooleanField(default=False)
@@ -131,7 +149,7 @@ class ProductAttributeValue(models.Model):
         return self.value
 
     def save(self, *args, **kwargs):
-        self.is_default = self.attribute.values.count() < 1
+        self.is_default = self.attribute.value_set.count() < 1
         return super().save(*args, **kwargs)
 
     class Meta:
@@ -162,9 +180,8 @@ class Review(BaseModel):
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="reviews"
     )
-    review = models.TextField()
-    image_url = models.URLField(null=True, blank=True)
-    rating = models.IntegerField(choices=Ratings.choices, default=0)
+    review_text = models.TextField()
+    rating = models.IntegerField(choices=Ratings.choices)
     sentiment = models.CharField(max_length=50, null=True, choices=SENTIMENT_TYPES)
     sentiment_score = models.FloatField(null=True)
 
@@ -176,4 +193,10 @@ class Review(BaseModel):
         self.product.update_rating()
         
     def __str__(self):
-        return f"Review of {self.product.name} by {self.user}"
+        return f"Review by {self.user}"
+
+
+class ReviewImage(Image):
+
+    review = models.ForeignKey(Review, on_delete=models.CASCADE)
+    image = models.ImageField(upload_to="reviews/")

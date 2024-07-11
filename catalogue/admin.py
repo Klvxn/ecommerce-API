@@ -1,8 +1,10 @@
 from django.contrib import admin, messages
+from django.contrib.admin.options import BaseModelAdmin
 from django.contrib.auth.models import AnonymousUser
 from django.utils.translation import ngettext
 
-from .models import Category, Product, ProductAttribute, ProductAttributeValue, Review
+from .models import (Category, Product, ProductAttribute, ProductAttributeValue,
+                     ProductImage, Review, ReviewImage)
 from .forms import AttributeModelForm, OfferModelForm, VoucherModelForm
 from .vouchers.models import Offer, Voucher, RedeemedVoucher
 
@@ -15,7 +17,29 @@ class CategoryAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ["name"]}
 
 
-class AttributeValueInline(admin.TabularInline):
+class SharedPermMixin(BaseModelAdmin):
+
+    def has_view_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_add_permission(self, request, obj=None):
+        return self.has_module_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        return (False
+                if not obj
+                else obj.product.store.owner == request.user or request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return self.has_change_permission(request, obj)
+
+    def has_module_permission(self, request):
+        if isinstance(request.user, AnonymousUser):
+            return False
+        return request.user.is_superuser or request.user.is_vendor
+
+
+class ProductAttributeValueInline(admin.TabularInline, SharedPermMixin):
 
     model = ProductAttributeValue
     min_num = 1
@@ -28,32 +52,13 @@ class AttributeValueInline(admin.TabularInline):
             attribute__product__store__owner=request.user
         )
 
-    def has_view_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_add_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_change_permission(self, request, obj=None):
-        return (False
-                if not obj
-                else obj.product.store.owner == request.user or request.user.is_superuser)
-
-    def has_delete_permission(self, request, obj=None):
-        return self.has_change_permission(request, obj)
-
-    def has_module_permission(self, request):
-        if isinstance(request.user, AnonymousUser):
-            return False
-        return request.user.is_superuser or request.user.is_vendor
-
 
 @admin.register(ProductAttribute)
-class ProductAttributeAdmin(admin.ModelAdmin):
+class ProductAttributeAdmin(admin.ModelAdmin, SharedPermMixin):
 
-    inlines = [AttributeValueInline]
-    form = AttributeModelForm
     list_display = ["name", "product", "attribute_values"]
+    inlines = [ProductAttributeValueInline]
+    form = AttributeModelForm
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -66,25 +71,6 @@ class ProductAttributeAdmin(admin.ModelAdmin):
         form.set_current_user(request.user)
         return form
 
-    def has_view_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_add_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_change_permission(self, request, obj=None):
-        return (False
-                if not obj
-                else obj.product.store.owner == request.user or request.user.is_superuser)
-
-    def has_delete_permission(self, request, obj=None):
-        return self.has_change_permission(request, obj)
-
-    def has_module_permission(self, request):
-        if isinstance(request.user, AnonymousUser):
-            return False
-        return request.user.is_superuser or request.user.is_vendor
-
 
 class ProductAttributeInline(admin.TabularInline):
 
@@ -94,20 +80,48 @@ class ProductAttributeInline(admin.TabularInline):
     fk_name = "product"
 
 
-class ReviewInline(admin.StackedInline):
+class ProductImageInline(admin.StackedInline):
+
+    model = ProductImage
+    fk_name = "product"
+    exclude = ["id"]
+    readonly_fields = ["image_url"]
+    extra = 0
+    min_num = 1
+
+
+class ReviewImageInline(admin.StackedInline):
+
+    model = ReviewImage
+    fk_name = "review"
+    exclude = ["id"]
+    readonly_fields = ["image_url"]
+    extra = 0
+    min_num = 1
+
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
 
     model = Review
     exclude = ["id"]
-    readonly_fields = ["user", "review", "image_url", "rating"]
+    list_display = ["__str__", "product", "created", "rating"]
+    inlines = [ReviewImageInline]
+    # readonly_fields = ["user", "review", "rating"]
     extra = 0
-    fk_name = "product"
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs if request.user.is_superuser else qs.filter(
+            product__store__owner=request.user
+        )
 
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
 
     actions = ["make_unavailable"]
-    inlines = [ProductAttributeInline, ReviewInline]
+    inlines = [ProductImageInline, ProductAttributeInline]
     list_display = ["name", "category", "in_stock", "store", "available"]
     readonly_fields = ["rating", "quantity_sold"]
     list_editable = ["category", "available", "in_stock"]
