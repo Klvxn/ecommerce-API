@@ -5,8 +5,10 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
 
+from ..models import BaseModel
 
-class Offer(models.Model):
+
+class Offer(BaseModel):
     """
     Represents a discount offer model. Offers can be applied to products or shipping fees,
     and can be available to all users, first time buyers or those with voucher code.
@@ -51,6 +53,7 @@ class Offer(models.Model):
     )
 
     eligible_products = models.ManyToManyField("catalogue.Product", blank=True)
+    claimed = models.ManyToManyField("customers.Customer", blank=True)
 
     class Meta:
         app_label = "catalogue"
@@ -129,7 +132,7 @@ class Offer(models.Model):
         return self.available_to == self.VOUCHERS
 
 
-class Voucher(models.Model):
+class Voucher(BaseModel):
     """
     Represents a voucher in the system. Vouchers are tied to offers and can have different
     usage types
@@ -144,7 +147,7 @@ class Voucher(models.Model):
 
     name = models.CharField(max_length=50)
     description = models.TextField()
-    code = models.CharField(max_length=50, unique=True)
+    code = models.CharField(max_length=50, unique=True, db_index=True)
     offer = models.ForeignKey(
         Offer, on_delete=models.CASCADE, limit_choices_to={"available_to": "Vouchers"}
     )
@@ -197,7 +200,7 @@ class Voucher(models.Model):
                 self.within_usage_limits(customer) and
                 self.offer.above_min_purchase(order_value) and
                 self.within_validity_period()
-        ), "Voucher is Valid"
+        ), "Voucher is valid"
 
     def redeem(self, customer, order_value):
         valid, _ = self.is_valid(customer, order_value)
@@ -210,6 +213,7 @@ class Voucher(models.Model):
         self.save()
 
 class RedeemedVoucher(models.Model):
+
     voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE)
     customer = models.ForeignKey("customers.Customer", on_delete=models.CASCADE)
     date_redeemed = models.DateTimeField(auto_now_add=True)
