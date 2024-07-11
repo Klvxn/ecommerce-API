@@ -13,8 +13,7 @@ class CartView(APIView):
     """
     View to handle cart-related operations:
     
-    retrieving cart items, creating orders from the cart, updating and
-    removing items from the cart.
+    Retrieving cart items, updating and removing items from the cart.
     """
 
     permission_classes = [AllowAny]
@@ -28,9 +27,9 @@ class CartView(APIView):
                 {
                     "Items": user_cart.cart,
                     "Total items": len(user_cart),
-                    "subtotal": f"${user_cart.subtotal()}",
-                    "Shipping": f"${user_cart.total_shipping_fee()}",
-                    "Total": f"${user_cart.total_cost()}",
+                    "subtotal": user_cart.subtotal(),
+                    "Shipping": user_cart.total_shipping_fee(),
+                    "Total": user_cart.total_cost()
                 },
                 status=status.HTTP_200_OK,
             )

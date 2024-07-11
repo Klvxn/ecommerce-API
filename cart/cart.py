@@ -27,10 +27,23 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def generate_item_id(self, product, attrs):
+    @staticmethod
+    def generate_item_id(product, attrs):
+        """
+        Generates a unique identifier for cart item based on the product and its
+        attributes.
+
+        Args:
+            product (Product): The product being added to the cart, for which the ID
+            is being generated.
+            attrs (dict): A dictionary of attributes and their values.
+
+        Returns:
+            str: A unique item ID string.
+        """
         to_hash = f"{product.id}_{product.name}_{attrs}"
         hash = hashlib.sha1(to_hash.encode()).hexdigest()
-        return f"{product.id}_{hash[-10:]}"
+        return f"{product.id}_{hash[-12:]}"
 
     def add_item(self, product, quantity, offer=None, attrs=None):
         """
@@ -49,9 +62,9 @@ class Cart:
 
         item = self.cart.get(_item_id, {
             "product": product.name,
-            "price": str(product.price),
+            "price": float(product.price),
             "quantity": 0,
-            "shipping": str(product.shipping_fee) if product.shipping_fee else 0,
+            "shipping": float(product.shipping_fee) if product.shipping_fee else 0,
         })
         item["quantity"] = quantity
         item["selected_attrs"] = attrs
@@ -74,10 +87,10 @@ class Cart:
         discount = {}
         if offer.for_product:
             discounted_price = self._apply_product_discount(product, offer)
-            discount["discounted_price"] = str(discounted_price)
+            discount["discounted_price"] = float(discounted_price)
         elif offer.for_shipping and product.shipping_fee:
             discounted_shipping = self._apply_shipping_discount(product, offer)
-            discount["discounted_shipping"] = str(discounted_shipping)
+            discount["discounted_shipping"] = float(discounted_shipping)
         discount.update({"offer_id": offer.id, "offer_type": offer.available_to})
         return discount
 
@@ -163,10 +176,19 @@ class Cart:
 
     @staticmethod
     def calculate_item_cost(item):
+        """
+        Calculate the total cost of a cart item, considering any discount applied.
+
+        Args:
+            item (dict): A dictionary containing the item's price, quantity, and optional discount.
+
+        Returns:
+            Decimal: The total cost of the cart item.
+        """
         return (
             Decimal(item["price"]) * item["quantity"]
-            if not item.get("discounted_price")
-            else Decimal(item["discounted_price"]) * item["quantity"]
+            if not item.get("discount")
+            else Decimal(item["discount"].get("discounted_price")) * item["quantity"]
         )
 
     def total_shipping_fee(self):
@@ -176,16 +198,13 @@ class Cart:
         Returns:
             Decimal: The total shipping fee.
         """
-        amount = []
-        discounted_shipping = 0
-        for item in self.cart.values():
-            if discount := item.get("discount"):
-                discounted_shipping = discount.get("discounted_shipping", Decimal(0))
-            shipping = item.get("shipping", 0)
-            (amount.append(discounted_shipping)
-                if discounted_shipping
-                else amount.append(shipping))
-        return sum(amount)
+        try:
+            return sum(Decimal(value.get("shipping", 0))
+            if not value.get("discount").get("discounted_shipping")
+            else Decimal(value["discount"].get("discounted_shipping"))
+            for value in self.cart.values())
+        except AttributeError:
+            return sum(Decimal(value.get("shipping", 0)) for value in self.cart.values())
 
     def subtotal(self):
         """
@@ -196,7 +215,6 @@ class Cart:
         """
         return sum(self.calculate_item_cost(item)
                          for item in self.cart.values())
-
 
     def total_cost(self):
         """
