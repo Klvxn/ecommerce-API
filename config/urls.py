@@ -49,7 +49,8 @@ urls = [
     path("", include("orders.urls")),
     path("", include("payments.urls")),
     path("", include("catalogue.urls")),
-    path("", include("vendors.urls")),
+    path("", include("stores.urls")),
+    path("", include("wishlist.urls")),
     path(
         "openapi/",
         schemas.get_schema_view(
@@ -93,9 +94,9 @@ class APIRoot(APIView):
     def get(self, request, format=None):
         return response.Response({
             "products": reverse.reverse("products", request=request, format=format),
-            # "discounts": reverse.reverse("discounts", request=request, format=format),
-            "vendors": reverse.reverse("vendor-list", request=request, format=format),
+            "stores": reverse.reverse("store-list", request=request, format=format),
             "cart": reverse.reverse("cart", request=request, format=format),
+            "orders": reverse.reverse("orders", request=request, format=format),
         })
 
 

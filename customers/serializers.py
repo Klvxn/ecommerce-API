@@ -73,3 +73,10 @@ class CustomerUpdateSerializer(WritableNestedModelSerializer):
             "date_of_birth",
             "address",
         ]
+
+
+class SimpleCustomerSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Customer
+        fields = ["email", "first_name", "last_name"]
