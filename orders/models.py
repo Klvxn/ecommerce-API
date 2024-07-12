@@ -1,4 +1,3 @@
-from decimal import Decimal as D
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
@@ -41,6 +40,10 @@ class Order(BaseModel):
 
     def __str__(self):
         return str(self.id)
+
+    @property
+    def items_count(self):
+        return sum(item.quantity for item in self.items.all())
 
     def redeem_voucher_offer(self, voucher_code):
         """
@@ -106,9 +109,9 @@ class OrderItem(BaseModel):
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     selected_attrs = models.JSONField(null=True, blank=True)
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     discounted_price = models.DecimalField(
-        max_digits=10, decimal_places=2, default=D(0.0)
+        max_digits=10, decimal_places=2, null=True
     )
     quantity = models.PositiveIntegerField(default=1)
     offer = models.ForeignKey(
@@ -116,7 +119,7 @@ class OrderItem(BaseModel):
     )
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True)
     discounted_shipping = models.DecimalField(
-        max_digits=10, decimal_places=2, default=D(0.0)
+        max_digits=10, decimal_places=2, null=True
     )
 
     def __str__(self):
@@ -182,20 +185,20 @@ class OrderItem(BaseModel):
         for item in user_cart:
             product = Product.objects.get(name=item["product"])
 
-            offer_id = None
-            discounted_price = discounted_shipping = 0
+            offer_id = 0
+            discounted_price = discounted_shipping = None
             if discount:= item.get("discount"):
                 offer_id = discount.get("offer_id")
-                discounted_price = discount.get("discounted_price", 0)
-                discounted_shipping = discount.get("discounted_price", 0)
+                discounted_price = discount.get("discounted_price")
+                discounted_shipping = discount.get("discounted_price")
 
             OrderItem.objects.create(
                 order=order,
                 product=product,
                 quantity=item.get("quantity"),
                 unit_price=item.get("price"),
-                discounted_price=D(discounted_price),
-                discounted_shipping=D(discounted_shipping),
+                discounted_price=discounted_price,
+                discounted_shipping=discounted_shipping,
                 offer_id=offer_id,
                 shipping_fee=item.get("shipping"),
                 selected_attrs=item.get("selected_attrs")
