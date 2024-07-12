@@ -30,10 +30,9 @@ class Payment(APIView):
     @swagger_auto_schema(tags=["Payment"])
     def get(self, request, pk):
         order = self.get_object(pk)
-        serializer = OrderSerializer(order)
-        data = serializer.data
-        client_token = gateway.client_token.generate()
-        context = {"client_token": client_token, "order": data}
+        serializer = OrderSerializer(order, context={"request": request})
+        # client_token = gateway.client_token.generate()
+        context = {"client_token": "client_token", "order": serializer.data}
         return TemplateResponse(request, "payment.html", context)
 
     @swagger_auto_schema(tags=["Payment"])
