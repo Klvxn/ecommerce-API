@@ -29,8 +29,9 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, required=False)
     url = serializers.HyperlinkedIdentityField(view_name="order_detail")
     total_discount = serializers.SerializerMethodField(read_only=True)
-    total_shipping = serializers.SerializerMethodField(read_only=True)
-    total_cost = serializers.SerializerMethodField(read_only=True)
+    subtotal = serializers.SerializerMethodField(read_only=True)
+    shipping = serializers.SerializerMethodField(read_only=True)
+    total = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
@@ -42,26 +43,30 @@ class OrderSerializer(serializers.ModelSerializer):
             "updated",
             "address",
             "items",
+            "items_count",
             "total_discount",
-            "total_shipping",
-            "total_cost",
+            "subtotal",
+            "shipping",
+            "total",
             "status",
         ]
 
-    def get_total_discount(self, obj):
-        return float(
-            sum(
-                item.cost_at_original_price()
-                for item in obj.items.all()
-                if item.cost_at_discounted_price() > D(0.00)
-            )
-            - sum(item.cost_at_discounted_price() for item in obj.items.all())
-        )
+    def get_subtotal(self, obj):
+        return sum(item.calculate_subtotal() for item in obj.items.all())
 
-    def get_total_shipping(self, obj):
+    def get_total_discount(self, obj):
+        total = 0
+        for item in obj.items.all():
+            if item.discounted_price:
+                total += (item.unit_price - item.discounted_price) * item.quantity
+            if item.discounted_shipping:
+                total += item.shipping_fee - item.discounted_shipping
+        return total
+
+    def get_shipping(self, obj):
         return float(obj.total_shipping_fee())
 
-    def get_total_cost(self, obj):
+    def get_total(self, obj):
         return float(obj.total_cost())
 
     def update(self, instance, validated_data):
@@ -73,39 +78,3 @@ class OrderSerializer(serializers.ModelSerializer):
         instance.address = address
         instance.save()
         return instance
-
-
-class SimpleOrderItemSerializer(serializers.ModelSerializer):
-
-    product = serializers.StringRelatedField()
-    subtotal = serializers.SerializerMethodField()
-
-    class Meta:
-        model = OrderItem
-        fields = ["product", "quantity", "subtotal"]
-
-    def get_subtotal(self, obj):
-        return float(obj.calculate_subtotal())
-
-
-class SimpleOrderSerializer(serializers.ModelSerializer):
-
-    address = AddressSerializer(required=False)
-    customer = serializers.StringRelatedField()
-    items = SimpleOrderItemSerializer(many=True, required=False)
-    total_cost = serializers.SerializerMethodField(read_only=True)
-
-    class Meta:
-        model = Order
-        fields = [
-            "id",
-            "customer",
-            "created",
-            "address",
-            "items",
-            "total_cost",
-            "status",
-        ]
-
-    def get_total_cost(self, obj):
-        return float(obj.total_cost())
