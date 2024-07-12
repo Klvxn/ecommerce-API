@@ -1,87 +1,204 @@
 <html lang="en">
-	<head>
-		<meta charset="UTF-8">
-		<meta http-equiv="X-UA-Compatible" content="IE=edge">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<style>
-			.button {
-				cursor: pointer;
-				font-weight: 500;
-				left: 3px;
-				line-height: inherit;
-				position: relative;
-				text-decoration: none;
-				text-align: center;
-				border-style: solid;
-				border-width: 1px;
-				border-radius: 3px;
-				-webkit-appearance: none;
-				-moz-appearance: none;
-				display: inline-block;
-			}
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <style>
+    /* Reset default margin and padding */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-			.button--small {
-				padding: 10px 20px;
-				font-size: 0.875rem;
-			}
+    /* Font styles */
+    body {
+      font-family: "Roboto", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+      background-color: #f8f9fa;
+      color: #333;
+    }
 
-			.button--green {
-				outline: none;
-				background-color: #64d18a;
-				border-color: #64d18a;
-				color: white;
-				transition: all 200ms ease;
-			}
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
 
-			.button--green:hover {
-				background-color: #8bdda8;
-				color: white;
-			}
-		</style>
-		<script src="https://js.braintreegateway.com/web/dropin/1.33.4/js/dropin.min.js"></script>
-		<script src="https://js.braintreegateway.com/web/3.87.0/js/client.min.js"></script>
-		<script src="https://js.braintreegateway.com/web/3.87.0/js/data-collector.min.js"></script>
-		<title>eCommerce API</title>
-	</head>
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
 
-	<body>
-		<h1> Your Order </h1>
-		{% for key, value in order %}
-			{{ key|title }}: {{ value }} <br>
-		{% endfor %}
+    /* Table styles */
+    .order-details {
+      width: 100%;
+      margin-top: 20px;
+      border-collapse: collapse;
+    }
 
-		<form id="payment-form" action="" method="post">
-			{% csrf_token %}
-			<div id="dropin-container"></div>
-			{% if order.status == 'paid' %}
-				<button id="submit-button" disabled class="button button--small button--green">This order is paid</button>
-			{% else %}
-				<button id="submit-button" class="button button--small button--green">Purchase</button>
-			{% endif %}
-			<input type="hidden" id="nonce" name="payment_method_nonce"/>
-		</form>
+    .order-details th,
+    .order-details td {
+      padding: 10px;
+      width: auto;
+      border: 1px solid #ddd;
+    }
 
-		<script type="text/javascript">
-			const form = document.getElementById('payment-form');
+    .order-details th {
+      background-color: #f2f2f2;
+      text-align: left;
+      font-weight: bold;
+    }
 
-			braintree.dropin.create({
-				authorization: '{{ client_token }}',
-				container: '#dropin-container'
-			}, (error, dropinInstance) => {
-				if (error) console.error(error);
+    .order-details td {
+      text-align: left;
+    }
 
-				form.addEventListener('submit', event => {
-					event.preventDefault();
+    .order-details a {
+      color: #007bff;
+      text-decoration: none;
+    }
 
-					dropinInstance.requestPaymentMethod((error, payload) => {
-						if (error) console.error(error);
+    .order-details a:hover {
+      text-decoration: underline;
+    }
 
-						document.getElementById('nonce').value = payload.nonce;
-						form.submit();
-					});
-				});
-			});
-		</script>
-	</body>
-</html>
+    /* Discount tag */
+    .discount-tag {
+      position: absolute;
+      padding: 4px 8px;
+      background-color: #28a745;
+      color: #fff;
+      margin-left: 16px;
+      font-size: 10px;
+      font-weight: bold;
+      border-radius: 4px 0 ;
+    }
+
+    /* Payment container */
+    #payment-container {
+      margin-top: 30px;
+      text-align: center;
+    }
+
+    #payment-container h2 {
+      margin-bottom: 10px;
+    }
+
+    .button {
+      display: inline-block;
+      background-color: forestgreen;
+      color: #fff;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: medium;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.3s;
+    }
+
+    .button:hover {
+      background-color: limegreen;
+    }
+
+    .button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+  </style>
+      <script src="https://js.braintreegateway.com/web/dropin/1.33.4/js/dropin.min.js"></script>
+      <script src="https://js.braintreegateway.com/web/3.87.0/js/client.min.js"></script>
+      <script src="https://js.braintreegateway.com/web/3.87.0/js/data-collector.min.js"></script>
+      <title>eCommerce API - Order Summary </title>
+    </head>
+    <body>
+    <div class="container">
+      <h1>Your Order Summary</h1>
+      <table class="order-details">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Quantity</th>
+            <th>Price</th>
+          </tr>
+        </thead>
+      <tbody>
+        {% for item in order.items %}
+        	<tr>
+            <td><a href="{% url 'product_detail' item.product.id %}">{{ item.product.name }}</a></td>
+            <td>{{ item.quantity }}</td>
+            <td> {{ item.discounted_price|default:item.unit_price }}
+              {% if item.discounted_price %}
+                <span class="discount-tag">Discount</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+        <tfoot>
+        {% if order.total_discount > 0 %}
+          <tr>
+            <th colspan="2">Discount</th>
+            <td> ${{ order.total_discount }}</td>
+          </tr>
+          {% endif %}
+          <tr>
+            <th colspan="2">Subtotal</th>
+            <td>${{ order.subtotal }} </td>
+          </tr>
+          <tr>
+            <th colspan="2">Shipping</th>
+            <td>${{ order.shipping }} </td>
+          </tr>
+          <tr>
+            <th>Total</th>
+            <td>{{ order.items_count }}</td>
+            <td>${{ order.total }}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div id="payment-container">
+        <h2>Secure Payment</h2>
+        <form action="" id="payment-form" method="post">
+          {% csrf_token %}
+          <div id="dropin-container"></div>
+          {% if order.status == 'paid' %}
+            <button disabled class="button button--green">This order is paid</button>
+          {% else %}
+            <button id="submit-button" class="button button--green">Pay Now</button>
+          {% endif %}
+          <input type="hidden" id="nonce" name="payment_method_nonce"/>
+        </form>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+        const form = document.getElementById('payment-form');
+
+        braintree.dropin.create({
+          authorization: '{{ client_token }}',
+          container: '#dropin-container'
+        }, (error, dropinInstance) => {
+          if (error) console.error(error);
+
+          form.addEventListener('submit', event => {
+            event.preventDefault();
+
+            dropinInstance.requestPaymentMethod((error, payload) => {
+              if (error) console.error(error);
+
+              document.getElementById('nonce').value = payload.nonce;
+              form.submit();
+            });
+          });
+        });
+    </script>
+  </body>
+  </html>
 

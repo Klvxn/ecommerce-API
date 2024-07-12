@@ -1,4 +1,4 @@
-import braintree, json
+import braintree
 from django.conf import settings
 from django.db import transaction
 from django.template.response import TemplateResponse
@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from orders.models import Order
-from orders.serializers import SimpleOrderSerializer
+from orders.serializers import OrderSerializer
 from .models import Transaction
 from .tasks import send_order_confirmation_email, write_trxn_to_csv, update_stock
 
@@ -30,12 +30,10 @@ class Payment(APIView):
     @swagger_auto_schema(tags=["Payment"])
     def get(self, request, pk):
         order = self.get_object(pk)
-        serializer = SimpleOrderSerializer(order)
+        serializer = OrderSerializer(order)
         data = serializer.data
-        data["address"] = json.dumps(data["address"])
-        data["items"] = json.dumps(data["items"])
         client_token = gateway.client_token.generate()
-        context = {"client_token": client_token, "order": data.items()}
+        context = {"client_token": client_token, "order": data}
         return TemplateResponse(request, "payment.html", context)
 
     @swagger_auto_schema(tags=["Payment"])
