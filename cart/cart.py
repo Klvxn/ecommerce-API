@@ -45,35 +45,47 @@ class Cart:
         hash = hashlib.sha1(to_hash.encode()).hexdigest()
         return f"{product.id}_{hash[-12:]}"
 
-    def add_item(self, product, quantity, offer=None, attrs=None):
+    def add_item(self, product, quantity, attrs=None, offer=None):
         """
         Adds a product to the cart or updates its quantity if it already exists. Applies a discount if provided.
 
         Args:
             product (Product): The product to add or update.
             quantity (int): The quantity of the product.
-            offer (Offer, optional): The offer object to apply. Defaults to None.
             attrs: (dict)
+            offer (Offer, optional): The offer object to apply. Defaults to None.
 
         Returns:
             bool: True if the cart was successfully saved.
         """
-        _item_id = self.generate_item_id(product, attrs)
+        item_id = self.generate_item_id(product, attrs)
 
-        item = self.cart.get(_item_id, {
-            "product": product.name,
-            "price": float(product.price),
-            "quantity": 0,
-            "shipping": float(product.shipping_fee) if product.shipping_fee else 0,
-        })
+        base_price = product.price
+        if attrs:
+            for attr_name, attr_value in attrs.items():
+                product_attr = product.attributes.filter(name=attr_name).first()
+                attr_value_obj = product_attr.values.get(value=attr_value)
+                base_price += attr_value_obj.price_adjustment
+
+        item = self.cart.get(
+            item_id,
+            {
+                "product": product.name,
+                "price": float(base_price),
+                "quantity": 0,
+                "shipping": float(product.shipping_fee) if product.shipping_fee else 0,
+            },
+        )
         item["quantity"] = quantity
         item["selected_attrs"] = attrs
+
         if offer:
-            item["discount"] = self.apply_offer(product, offer)
-        self.cart[_item_id] = item
+            item["discount"] = self._apply_offer(product, offer)
+
+        self.cart[item_id] = item
         return self.save()
 
-    def apply_offer(self, product, offer):
+    def _apply_offer(self, product, offer):
         """
         Applies discount and offers to a product in the cart
 
@@ -85,15 +97,17 @@ class Cart:
             dict: A dictionary containing the applied discount and details of the offer
         """
         discount = {}
+
         if offer.for_product:
             discounted_price = self._apply_product_discount(product, offer)
             discount["discounted_price"] = float(discounted_price)
+
         elif offer.for_shipping and product.shipping_fee:
             discounted_shipping = self._apply_shipping_discount(product, offer)
             discount["discounted_shipping"] = float(discounted_shipping)
+
         discount.update({"offer_id": offer.id, "offer_type": offer.available_to})
         return discount
-
 
     def update_item(self, item_id, quantity):
         """
@@ -199,10 +213,12 @@ class Cart:
             Decimal: The total shipping fee.
         """
         try:
-            return sum(Decimal(value.get("shipping", 0))
-            if not value.get("discount").get("discounted_shipping")
-            else Decimal(value["discount"].get("discounted_shipping"))
-            for value in self.cart.values())
+            return sum(
+                Decimal(value.get("shipping", 0))
+                if not value.get("discount").get("discounted_shipping")
+                else Decimal(value["discount"].get("discounted_shipping"))
+                for value in self.cart.values()
+            )
         except AttributeError:
             return sum(Decimal(value.get("shipping", 0)) for value in self.cart.values())
 
@@ -213,8 +229,7 @@ class Cart:
         Returns:
             Decimal: The total cost.
         """
-        return sum(self.calculate_item_cost(item)
-                         for item in self.cart.values())
+        return sum(self.calculate_item_cost(item) for item in self.cart.values())
 
     def total_cost(self):
         """

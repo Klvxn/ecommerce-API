@@ -1,6 +1,5 @@
 import braintree
 from django.conf import settings
-from django.db import transaction
 from django.template.response import TemplateResponse
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
@@ -20,7 +19,6 @@ gateway = braintree.BraintreeGateway(settings.BRAINTREE_CONF)
 
 
 class Payment(APIView):
-
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk):
@@ -31,17 +29,20 @@ class Payment(APIView):
     def get(self, request, pk):
         order = self.get_object(pk)
         serializer = OrderSerializer(order, context={"request": request})
-        # client_token = gateway.client_token.generate()
-        context = {"client_token": "client_token", "order": serializer.data}
+        client_token = gateway.client_token.generate()
+        context = {"client_token": client_token, "order": serializer.data}
         return TemplateResponse(request, "payment.html", context)
 
-    @swagger_auto_schema(tags=["Payment"])
-    def post(self, request, pk):
-        order = self.get_object(pk)
-        customer = order.customer
-        address = order.address
-        total_cost = order.total_cost()
-        customer_kwargs = {
+    def _post_payment_tasks(self, order, transaction_record):
+        send_order_confirmation_email.delay(order)
+        write_trxn_to_csv.delay(order, order.customer, transaction_record.transaction_id)
+        update_stock.delay(order, order.customer)
+
+    def _prepare_customer_data(self, customer, address):
+        """
+        Prepares customer data for the payment gateway.
+        """
+        return {
             "first_name": customer.first_name,
             "last_name": customer.last_name,
             "street_address": address.street_address,
@@ -50,7 +51,32 @@ class Payment(APIView):
             "region": address.state,
             "country_name": address.country,
         }
-        nonce_from_client = request.data["payment_method_nonce"]
+
+    @swagger_auto_schema(tags=["Payment"])
+    def post(self, request, pk):
+        order = self.get_object(pk)
+
+        # Validate order state
+        if order.status == "paid":
+            return Response({"error": "Order already paid"}, status=status.HTTP_400_BAD_REQUEST)
+
+        customer = order.customer
+        address = order.address
+        total_cost = order.total_cost()
+
+        if not (nonce_from_client := request.data.get("payment_method_nonce")):
+            return Response(
+                {"error": "Payment method nonce is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        trxn_record = Transaction.objects.create(
+            order=order,
+            customer=customer,
+            status="pending",
+            amount_paid=total_cost,
+        )
+
+        customer_kwargs = self._prepare_customer_data(customer, address)
         result = gateway.transaction.sale(
             {
                 "amount": f"{total_cost:.2f}",
@@ -62,22 +88,15 @@ class Payment(APIView):
                 },
             }
         )
-        if result.is_success:
-            with transaction.atomic():
-                order.status = "paid"
-                order.save()
-                update_stock.delay(order, customer)
-                send_order_confirmation_email.delay(order)
-                write_trxn_to_csv.delay(order, customer, result.transaction.id)
-                Transaction.objects.create(
-                    order=order,
-                    customer=order.customer,
-                    transaction_id=result.transaction.id,
-                    amount_paid=total_cost
-                )
-                return Response(
-                    {"success": "Payment was successful"}, status=status.HTTP_200_OK
-                )
-        return Response(
-            {"error": f"{result.message}"}, status=status.HTTP_502_BAD_GATEWAY
-        )
+        trxn_record.transaction_id = result.transaction.id
+        if result.is_success:  # If payment is successful
+            order.status = "paid"
+            order.save(update_fields=["status"])
+            trxn_record.status = "successful"
+            trxn_record.save(update_fields=["status", "transaction_id"])
+            self._post_payment_tasks(order, trxn_record)
+            return Response({"success": "Payment was successful"}, status=status.HTTP_200_OK)
+
+        trxn_record.status = "failed"
+        trxn_record.save(update_fields=["status", "transaction_id"])
+        return Response({"error": f"{result.message}"}, status=status.HTTP_502_BAD_GATEWAY)

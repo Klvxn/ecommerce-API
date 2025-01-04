@@ -11,25 +11,26 @@ from .models import Wishlist
 
 
 # Create your views here.
-class WishlistView(GenericAPIView):
+class WishlistListView(GenericAPIView):
     """
     API endpoint for managing a customer's wishlist.
     """
 
     http_method_names = ["get", "post"]
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
 
     def get_queryset(self):
-        return Wishlist.objects.filter()
+        return Wishlist.objects.filter(owner=self.request.user)
 
     def get(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.queryset, many=True)
+        serializer = self.get_serializer(self.get_queryset(), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, *args, **kwargs):
-        request.data["owner"] = request.user
-        serializer = self.get_serializer(data=request.data)
+        context = self.get_serializer_context()
+        context["owner"] = request.user
+        serializer = self.get_serializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -38,13 +39,17 @@ class WishlistView(GenericAPIView):
 class WishlistInstanceView(GenericAPIView):
 
     queryset = Wishlist.objects.all()
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
+    search_fields = [""]
 
     def get_queryset(self):
-        return Wishlist.objects.filter(owner=self.request.user)
+        queryset = Wishlist.objects.filter(owner=self.request.user)
+        queryset = self.filter_queryset(queryset)
+        return queryset
     
     def dispatch(self, request, *args, **kwargs):
+        instance = self.get_object()
         if self.get_object().is_private:
             self.check_object_permissions(request, self.get_object())
         return super().dispatch(request, *args, **kwargs)

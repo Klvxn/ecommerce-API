@@ -1,11 +1,11 @@
 from django.urls import path
 
-from .views import WishlistInstanceView, WishlistView
+from .views import WishlistInstanceView, WishlistListView
 
 
 urlpatterns = [
-    path("wishlists/", WishlistView.as_view()),
-    path("wishlists/<int:pk>/", WishlistInstanceView.as_view()),
+    path("wishlists/", WishlistListView.as_view()),
+    path("wishlists/<int:pk>/", WishlistInstanceView.as_view(), name="wishlist_detail"),
     path(
         "wishlists/<int:pk>/public/",
         WishlistInstanceView.as_view(),

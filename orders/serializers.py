@@ -1,4 +1,3 @@
-from decimal import Decimal as D
 from rest_framework import serializers
 
 from customers.models import Address

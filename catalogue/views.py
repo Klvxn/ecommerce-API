@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timezone
 
 from django.shortcuts import redirect
@@ -15,10 +14,10 @@ from .models import Product, Review
 from .serializers import (
     ProductInstanceSerializer,
     ProductReviewSerializer,
-    ProductsListSerializer, AddToCartSerializer,
+    ProductsListSerializer,
+    AddToCartSerializer,
 )
 from .vouchers.models import Voucher, Offer
-
 
 
 # Create your views here.
@@ -26,6 +25,7 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
     """
     View to list products with filtering, searching, and pagination.
     """
+
     permission_classes = [AllowAny]
     serializer_class = ProductsListSerializer
     filterset_fields = ["category", "available", "store"]
@@ -40,10 +40,10 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
         operation_summary="Get all available products",
         manual_parameters=[
             openapi.Parameter(
-                name="search", 
+                name="search",
                 in_=openapi.IN_QUERY,
                 type=openapi.TYPE_STRING,
-                description="Search products"
+                description="Search products",
             )
         ],
         responses={200: ProductsListSerializer(many=True)},
@@ -68,6 +68,7 @@ class ProductInstanceView(GenericAPIView):
     """
     Includes method to retrieve a single product.
     """
+
     http_method_names = ["get"]
     queryset = Product.objects.all()
     permission_classes = [AllowAny]
@@ -76,7 +77,7 @@ class ProductInstanceView(GenericAPIView):
     @swagger_auto_schema(
         operation_summary="Retrieve a product",
         responses={200: ProductInstanceSerializer(), 404: "Not Found"},
-        tags=["Product"]
+        tags=["Product"],
     )
     def get(self, request, pk):
         product = self.get_object()
@@ -123,7 +124,6 @@ class ProductCartView(GenericAPIView):
                     return offer
         return None
 
-
     @swagger_auto_schema(
         operation_summary="Add a product to cart",
         request_body=openapi.Schema(
@@ -140,7 +140,7 @@ class ProductCartView(GenericAPIView):
                 "attribute_values": {
                     "size": "XL",
                     "colour": "Green",
-                }
+                },
             },
         ),
         tags=["Product"],
@@ -159,35 +159,37 @@ class ProductCartView(GenericAPIView):
         product_offers = Offer.objects.filter(
             eligible_products=product,
             valid_from__lte=datetime.now(timezone.utc),
-            valid_to__gte=datetime.now(timezone.utc)
+            valid_to__gte=datetime.now(timezone.utc),
         )
         order_value = product.price * quantity
 
         # Process the cart without discount code
         if not discount_code:
-
             # Get an offer that does not require a voucher code but open to customers
-            open_offer = self.get_applicable_offers(product_offers.filter(
-                available_to__in=["All customers", "First time buyers"]
-            ), request.user, order_value)
+            open_offer = self.get_applicable_offers(
+                product_offers.filter(available_to__in=["All customers", "First time buyers"]),
+                request.user,
+                order_value,
+            )
 
             if open_offer == "Not authenticated":
                 return redirect(f"/auth/login/?next={self.request.path}")
 
-            (user_cart.add_item(product, quantity, open_offer, attrs=selected_attrs)
-             if open_offer
-             else user_cart.add_item(product, quantity, attrs=selected_attrs))
+            (
+                user_cart.add_item(product, quantity, open_offer, attrs=selected_attrs)
+                if open_offer
+                else user_cart.add_item(product, quantity, attrs=selected_attrs)
+            )
 
             return Response(
-                {"success": f"{product} has been added to cart"}, status=status.HTTP_200_OK,
+                {"success": f"{product} has been added to cart"},
+                status=status.HTTP_200_OK,
             )
 
         # With discount code
         voucher = Voucher.objects.filter(code=discount_code).first()
         if voucher.offer not in product_offers:
-            return Response(
-                {"error": "In-applicable voucher code"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "In-applicable voucher code"}, status=status.HTTP_400_BAD_REQUEST)
 
         is_valid, _msg = voucher.is_valid(request.user, order_value)
         if not is_valid:
@@ -203,7 +205,7 @@ class ProductCartView(GenericAPIView):
 class ProductReviewView(GenericAPIView):
     """
     Handles review actions for products.
-    
+
     Provides methods to get all reviews for a product and to add a new review.
     """
 
@@ -230,7 +232,7 @@ class ProductReviewView(GenericAPIView):
     @swagger_auto_schema(
         operation_summary="Add a review for a product",
         responses={201: ProductReviewSerializer(), 400: "Bad Request"},
-        tags=["Review"]
+        tags=["Review"],
     )
     def post(self, request, product_id):
         product = get_object_or_404(Product, pk=product_id)
@@ -239,9 +241,7 @@ class ProductReviewView(GenericAPIView):
         # only customers who purchased a product can post a review for that product
         if product not in customer.products_bought.all():
             return Response(
-                {
-                    "error": "You can't add a review for a product you didn't purchase."
-                },
+                {"error": "You can't add a review for a product you didn't purchase."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -249,9 +249,7 @@ class ProductReviewView(GenericAPIView):
 
         if serializer.is_valid(raise_exception=True):
             serializer.save(user=request.user, product=product)
-            return Response(
-                {"success": "Review posted"}, status=status.HTTP_201_CREATED
-            )
+            return Response({"success": "Review posted"}, status=status.HTTP_201_CREATED)
 
         return Response({"error": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -278,7 +276,7 @@ class ProductReviewInstance(GenericAPIView):
             return product.reviews.get(pk=review_id)
         except Review.DoesNotExist:
             raise exceptions.NotFound({"error": "Review doesn't exist"})
-                
+
     def dispatch(self, request, *args, **kwargs):
         # Checks object permissions for PUT and DELETE requests.
         if request.method.lower() in ("put", "delete"):
@@ -286,11 +284,11 @@ class ProductReviewInstance(GenericAPIView):
                 request, self.get_product_review(kwargs["product_id"], kwargs["review_id"])
             )
         return super().dispatch(request, *args, **kwargs)
-    
+
     @swagger_auto_schema(
         operation_summary="Get a product's review",
-        responses={200: ProductReviewSerializer(), 400:"Not Found"},
-        tags=["Review"]
+        responses={200: ProductReviewSerializer(), 400: "Not Found"},
+        tags=["Review"],
     )
     def get(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
@@ -300,7 +298,7 @@ class ProductReviewInstance(GenericAPIView):
     @swagger_auto_schema(
         operation_summary="Update a product's review",
         responses={200: ProductReviewSerializer, 400: "Bad Request", 404: "Not Found"},
-        tags=["Review"]
+        tags=["Review"],
     )
     def put(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)

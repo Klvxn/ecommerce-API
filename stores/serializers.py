@@ -6,18 +6,13 @@ from .models import Store
 
 
 class StoreSerializer(serializers.ModelSerializer):
-
-    products_sold = serializers.ReadOnlyField(source="get_products_sold")
+    products_sold = serializers.ReadOnlyField(source="products_sold")
 
     class Meta:
         model = Store
-        fields = [
-            "id", "url", "brand_name", "about", "products_sold", "owner", "followers"
-        ]
-        extra_kwargs = {
-            "url": {"lookup_field": "slug"}
-        }
-        
+        fields = ["id", "url", "brand_name", "about", "products_sold", "owner", "followers"]
+        extra_kwargs = {"url": {"lookup_field": "slug"}}
+
     def create(self, validated_data):
         obj = super().create(validated_data)
         obj.owner.is_vendor = True
@@ -27,13 +22,10 @@ class StoreSerializer(serializers.ModelSerializer):
 
 
 class StoreInstanceSerializer(serializers.HyperlinkedModelSerializer):
-
     product_set = ProductsListSerializer(many=True, required=False)
-    products_sold = serializers.ReadOnlyField(source="get_products_sold")
+    products_sold = serializers.ReadOnlyField(source="products_sold")
 
     class Meta:
         model = Store
         fields = StoreSerializer.Meta.fields + ["product_set"]
-        extra_kwargs = {
-            "url": {"lookup_field": "slug"}
-        }
+        extra_kwargs = {"url": {"lookup_field": "slug"}}

@@ -13,6 +13,7 @@ class Store(models.Model):
     means that a Customer can own a Store, but a single Customer cannot be
     associated with multiple Stores.
     """
+
     owner = models.OneToOneField(Customer, on_delete=models.CASCADE)
     brand_name = models.CharField(max_length=50, unique=True, db_index=True)
     about = models.TextField()
@@ -30,7 +31,8 @@ class Store(models.Model):
 
     @property
     def products_count(self):
-        return self.product_set.all().count()
+        return self.product_set.count()
 
-    def get_products_sold(self):
+    @property
+    def products_sold(self):
         return sum(product.quantity_sold for product in self.product_set.all())

@@ -2,21 +2,22 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.shortcuts import reverse
 
-from catalogue.models import BaseModel, Product
+from catalogue.models import Timestamp, Product
 
 
 # Create your models here.
 User = get_user_model()
 
-class Wishlist(BaseModel):
+
+class Wishlist(Timestamp):
     PUBLIC = "public"
     PRIVATE = "private"
 
     WISHLIST_AUDIENCE = (
         (PUBLIC, "Anyone can view this wishlist"),
-        (PRIVATE, "Only you can view your wishlist")
+        (PRIVATE, "Only you can view your wishlist"),
     )
-    name = models.CharField(max_length=50)
+    name = models.CharField(max_length=100)
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
     audience = models.CharField(max_length=50, choices=WISHLIST_AUDIENCE, default=PRIVATE)
     note = models.TextField(null=True, blank=True)
@@ -43,16 +44,15 @@ class Wishlist(BaseModel):
         return self.audience == self.PRIVATE
 
     def get_absolute_url(self):
-        return reverse("wishlist_detail", self.id)
+        return reverse("wishlist_detail", args=[self.id])
 
     def get_public_url(self):
         if not self.is_private:
-            return reverse("public_wishlist", self.id)
+            return reverse("public_wishlist", args=[self.id])
 
-class WishlistItem(BaseModel):
-    wishlist = models.ForeignKey(
-        Wishlist, on_delete=models.CASCADE, related_name="items"
-    )
+
+class WishlistItem(Timestamp):
+    wishlist = models.ForeignKey(Wishlist, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
 
     def __str__(self):
