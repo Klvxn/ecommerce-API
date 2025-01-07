@@ -1,13 +1,11 @@
 from rest_framework import serializers
 
-from catalogue.serializers import ProductsListSerializer
+from catalogue.serializers import ProductListSerializer
 
 from .models import Store
 
 
 class StoreSerializer(serializers.ModelSerializer):
-    products_sold = serializers.ReadOnlyField(source="products_sold")
-
     class Meta:
         model = Store
         fields = ["id", "url", "brand_name", "about", "products_sold", "owner", "followers"]
@@ -22,8 +20,7 @@ class StoreSerializer(serializers.ModelSerializer):
 
 
 class StoreInstanceSerializer(serializers.HyperlinkedModelSerializer):
-    product_set = ProductsListSerializer(many=True, required=False)
-    products_sold = serializers.ReadOnlyField(source="products_sold")
+    product_set = ProductListSerializer(many=True, required=False)
 
     class Meta:
         model = Store
