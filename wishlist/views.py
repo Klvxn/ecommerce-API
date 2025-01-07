@@ -6,8 +6,8 @@ from rest_framework.generics import GenericAPIView
 
 from catalogue.models import Product
 
-from .serializers import WishlistSerializer
 from .models import Wishlist
+from .serializers import WishlistSerializer
 
 
 # Create your views here.
@@ -19,9 +19,12 @@ class WishlistListView(GenericAPIView):
     http_method_names = ["get", "post"]
     permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
+    search_fields = ["name", "item__product__name"]
 
     def get_queryset(self):
-        return Wishlist.objects.filter(owner=self.request.user)
+        queryset = Wishlist.objects.filter(owner=self.request.user)
+        queryset = self.filter_queryset(queryset)
+        return queryset
 
     def get(self, request, *args, **kwargs):
         serializer = self.get_serializer(self.get_queryset(), many=True)
@@ -37,21 +40,20 @@ class WishlistListView(GenericAPIView):
 
 
 class WishlistInstanceView(GenericAPIView):
-
     queryset = Wishlist.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
-    search_fields = [""]
+    search_fields = ["item__product__name"]
 
     def get_queryset(self):
         queryset = Wishlist.objects.filter(owner=self.request.user)
         queryset = self.filter_queryset(queryset)
         return queryset
-    
+
     def dispatch(self, request, *args, **kwargs):
         instance = self.get_object()
-        if self.get_object().is_private:
-            self.check_object_permissions(request, self.get_object())
+        if instance.is_private:
+            self.check_object_permissions(request, instance)
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, pk):
@@ -59,13 +61,11 @@ class WishlistInstanceView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request, pk):
-        product_id = request.data.get("product")
+        product_id = request.data.get("product_id")
         if not product_id:
-            return Response(
-                {"error": "Product is required"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Product is required"}, status=status.HTTP_400_BAD_REQUEST)
         product = get_object_or_404(Product, pk=product_id)
-        self.get_object().add_to_wishlist(product)
+        self.get_object().add(product)
         return Response(status=status.HTTP_201_CREATED)
 
     def put(self, request, pk):
@@ -74,7 +74,7 @@ class WishlistInstanceView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def delete(self, request, pk):
-        product_id = request.data.get("product")
+        product_id = request.data.get("product_id")
         if not product_id:
             self.get_object().delete()
         else:
