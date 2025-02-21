@@ -1,5 +1,6 @@
-import os
 import magic
+import os
+from datetime import datetime, timezone
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -28,6 +29,7 @@ class Category(models.Model):
     """
 
     name = models.CharField(max_length=50, db_index=True)
+    subcategory = models.ForeignKey("self", on_delete=models.CASCADE, related_name="sub_categories")
     slug = models.SlugField()
 
     class Meta:
@@ -53,25 +55,45 @@ class Product(Timestamp):
     category = models.ForeignKey(Category, on_delete=models.DO_NOTHING)
     description = models.TextField()
     store = models.ForeignKey(Store, on_delete=models.CASCADE, null=True)
-    in_stock = models.PositiveIntegerField()
-    quantity_sold = models.PositiveIntegerField(default=0)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
+    base_price = models.DecimalField(max_digits=10, decimal_places=2)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    available = models.BooleanField(default=False)
     rating = models.FloatField(null=True, blank=True)
+    is_standalone = models.BooleanField(
+        default=True,
+        help_text="Does/Will this product have variants that inherits its properties?",
+    )
 
-    objects = models.Manager()
+    # Stock status fields
+    total_stock_level = models.PositiveIntegerField()
+    total_sold = models.PositiveIntegerField(default=0)
+    is_available = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ["-quantity_sold", "-rating"]
-        index = [models.Index(fields=["category", "available"])]
+        ordering = ["-total_sold", "-rating"]
+        indexes = [models.Index(fields=["category", "is_available"])]
 
     def __str__(self):
         return self.name
 
+    def clean(self):
+        # if self.is_standalone and self.variants.exists():
+        #     return ValidationError("Standalone products cannot have variants")
+        super().clean()
+
     def save(self, *args, **kwargs):
-        self.available = self.in_stock > 0
         super().save(*args, **kwargs)
+        # self.full_clean()
+
+    @property
+    def has_variants(self):
+        return not self.is_standalone and self.variants.exists()
+
+    def update_stock_status(self):
+        variants = self.variants.all()
+        self.total_stock_level = sum(variant.stock_level for variant in variants)
+        self.total_sold = sum(variant.quantity_sold for variant in variants)
+        self.is_available = self.total_stock_level > 0
+        self.save()
 
     def update_rating(self):
         """
@@ -96,6 +118,141 @@ class Product(Timestamp):
         rating_sum, reviews_count = results.values()
         return rating_sum / reviews_count if reviews_count else None
 
+    def get_active_offers(self, customer=None):
+        """
+        Get all active offers applicable to this product, either directly or through its category.
+        Groups offers by type (product-specific, category-wide) and excludes expired offers.
+
+        Args:
+            customer: Optional customer object to check customer-specific eligibility
+
+        Returns:
+            dict: Dictionary containing categorized offers and their details
+        """
+        now = datetime.now(timezone.utc)
+
+        # Get product-level offers
+        from discount.models import OfferCondition
+
+        product_conditions = OfferCondition.objects.filter(
+            condition_type="specific_products",
+            eligible_products=self,
+            offer__is_active=True,
+            offer__valid_from__lte=now,
+            offer__valid_to__gte=now,
+            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
+        ).select_related("offer")
+
+        # Get category-level offers
+        category_conditions = OfferCondition.objects.filter(
+            condition_type="specific_categories",
+            eligible_categories=self.category,
+            offer__is_active=True,
+            offer__valid_from__lte=now,
+            offer__valid_to__gte=now,
+            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
+        ).select_related("offer")
+
+        # Collect all unique offers
+        product_offers = {cond.offer for cond in product_conditions}
+        category_offers = {cond.offer for cond in category_conditions}
+
+        # If customer is provided, filter out offers they're not eligible for
+        if customer:
+            product_offers = {
+                offer
+                for offer in product_offers
+                if offer.satisfies_conditions(product=self, customer=customer)[0]
+            }
+            category_offers = {
+                offer
+                for offer in category_offers
+                if offer.satisfies_conditions(product=self, customer=customer)[0]
+            }
+
+        return {
+            "product_offers": sorted(product_offers, key=lambda x: x.discount_value, reverse=True),
+            "category_offers": sorted(category_offers, key=lambda x: x.discount_value, reverse=True),
+            "total_offers": len(product_offers) + len(category_offers),
+        }
+
+
+class ProductAttribute(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="attributes")
+    name = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "product attribute"
+        unique_together = ("product", "name")
+
+    def attribute_values(self):
+        return list(self.values.values_list("value", flat=True))
+
+
+class ProductVariant(Timestamp):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
+    sku = models.CharField(max_length=20, unique=True, db_index=True)
+    price_adjustment = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.0,
+        help_text="Amount to add to the product's base price",
+    )
+    is_active = models.BooleanField(default=True)
+    stock_level = models.PositiveIntegerField()
+    quantity_sold = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ("-quantity_sold",)
+        unique_together = ("sku", "product")
+        indexes = [models.Index(fields=("product", "is_active"))]
+
+    def __str__(self):
+        attriutes = self.variant_attributes.all()
+        variant_desc = " - ".join(f"{attr.attribute.name}: {attr.value}" for attr in attriutes)
+        return f"{self.product.name} ({variant_desc})"
+
+    @property
+    def final_price(self):
+        return self.product.base_price + self.price_adjustment
+
+    def clean(self):
+        if self.product.is_standalone:
+            raise ValidationError("Cannot add variants to standalone products")
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.product.update_stock_status()
+
+
+class VariantAttribute(models.Model):
+    variant = models.ForeignKey(
+        ProductVariant, on_delete=models.CASCADE, related_name="variant_attributes"
+    )
+    attribute = models.ForeignKey(ProductAttribute, on_delete=models.CASCADE)
+    value = models.CharField(max_length=255)
+    is_default = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Variant_attribute for {self.variant}"
+
+    def save(self, *args, **kwargs):
+        # self.full_clean()
+        self.is_default = self.value is None
+        super().save(*args, **kwargs)
+
+    class Meta:
+        unique_together = ("variant", "attribute")
+
+    # def clean(self):
+    #     print(self.values)
+    #     if self.attribute.product != self.variant.product:
+    #         raise ValidationError("Attribute must belong to the variant's product")
+    #     return super().clean()
+
 
 class ProductMedia(Timestamp):
     """
@@ -115,7 +272,6 @@ class ProductMedia(Timestamp):
     is_primary = models.BooleanField(default=False, help_text="Set as primary media for product")
 
     class Meta:
-        ordering = ["-is_primary", "-created_at"]
         verbose_name_plural = "product media"
 
     def __str__(self):
@@ -170,44 +326,6 @@ class ProductMedia(Timestamp):
 
     def get_file_size(self):
         return round(self.file.size / (1024 * 1024), 2)
-
-
-class ProductAttribute(models.Model):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="attributes")
-    name = models.CharField(max_length=255)
-
-    def __str__(self):
-        return self.name
-
-    class Meta:
-        verbose_name = "product attribute"
-        unique_together = ("product", "name")
-
-    def attribute_values(self):
-        return list(self.value_set.values_list("value", flat=True))
-
-
-class ProductAttributeValue(models.Model):
-    attribute = models.ForeignKey(ProductAttribute, on_delete=models.CASCADE, related_name="value_set")
-    value = models.CharField(max_length=255)
-    is_default = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=True)
-    price_adjustment = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
-
-    def __str__(self):
-        return self.value
-
-    def save(self, *args, **kwargs):
-        self.is_default = self.attribute.value_set.count() < 1
-        return super().save(*args, **kwargs)
-
-    class Meta:
-        verbose_name = "attribute value"
-        verbose_name_plural = "attribute values"
-        unique_together = ("attribute", "value")
-        indexes = [
-            models.Index(fields=["attribute", "is_active"]),
-        ]
 
 
 class Review(Timestamp):

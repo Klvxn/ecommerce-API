@@ -7,13 +7,13 @@ from .models import (
     Category,
     Product,
     ProductAttribute,
-    ProductAttributeValue,
     ProductMedia,
+    ProductVariant,
     Review,
     ReviewImage,
+    VariantAttribute,
 )
-from .forms import AttributeModelForm, OfferModelForm, VoucherModelForm
-from .vouchers.models import Offer, Voucher, RedeemedVoucher
+from .forms import AttributeModelForm, VariantAttributeInlineForm
 
 
 # Register your models here.
@@ -42,39 +42,63 @@ class SharedPermMixin(BaseModelAdmin):
         return request.user.is_superuser or request.user.is_vendor
 
 
-class ProductAttributeValueInline(admin.TabularInline, SharedPermMixin):
-    model = ProductAttributeValue
+class VariantAttributeInline(admin.TabularInline, SharedPermMixin):
+    model = VariantAttribute
+    form = VariantAttributeInlineForm
     min_num = 1
-    extra = 2
-    fk_name = "attribute"
+    extra = 1
+    fk_name = "variant"
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return (
-            qs if request.user.is_superuser else qs.filter(attribute__product__store__owner=request.user)
-        )
+    def get_formset(self, request, obj=None, **kwargs):
+        """Pass request to form"""
+        formset = super().get_formset(request, obj, **kwargs)
+        # formset.form.base_fields["attribute"].queryset = ProductAttribute.objects.none()
+        return formset
 
 
-@admin.register(ProductAttribute)
-class ProductAttributeAdmin(admin.ModelAdmin, SharedPermMixin):
-    list_display = ["name", "product", "attribute_values"]
-    inlines = [ProductAttributeValueInline]
+@admin.register(ProductVariant)
+class ProductVariantAdmin(SharedPermMixin, admin.ModelAdmin):
+    list_display = ["sku", "product", "stock_level", "is_active"]
+    inlines = [VariantAttributeInline]
     form = AttributeModelForm
+    change_form_template = "admin/change_form_variant.html"
+    js = ("catalogue/admin/js/variant.js",)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs if request.user.is_superuser else qs.filter(product__store__owner=request.user)
 
-    def get_form(self, request, obj=None, change=False, **kwargs):
-        form = super().get_form(request, obj, change, **kwargs)
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
         form.set_current_user(request.user)
+        print(obj)
+        if obj is None:
+            # For new variants, add product field with initial value if provided
+            if "product" in request.GET:
+                form.base_fields["product"].initial = request.GET["product"]
         return form
+
+
+# @admin.register(ProductAttribute)
+# class ProductAttributeAdmin(SharedPermMixin, admin.ModelAdmin):
+#     list_display = ["name", "product"]
+#     inlines = [VariantAttributeInline]
+#     form = AttributeModelForm
+#
+#     def get_queryset(self, request):
+#         qs = super().get_queryset(request)
+#         return qs if request.user.is_superuser else qs.filter(product__store__owner=request.user)
+#
+#     def get_form(self, request, obj=None, change=False, **kwargs):
+#         form = super().get_form(request, obj, change, **kwargs)
+#         form.set_current_user(request.user)
+#         return form
 
 
 class ProductAttributeInline(admin.TabularInline):
     model = ProductAttribute
     min_num = 1
-    extra = 2
+    extra = 1
     fk_name = "product"
 
 
@@ -82,16 +106,20 @@ class ProductMediaInline(admin.StackedInline):
     model = ProductMedia
     fk_name = "product"
     exclude = ["id"]
-    readonly_fields = ["image_url"]
     extra = 0
     min_num = 1
+
+
+class ProductVariantInline(admin.StackedInline):
+    model = ProductVariant
+    fk_name = "product"
+    extra = 0
 
 
 class ReviewImageInline(admin.StackedInline):
     model = ReviewImage
     fk_name = "review"
     exclude = ["id"]
-    readonly_fields = ["image_url"]
     extra = 0
     min_num = 1
 
@@ -113,11 +141,11 @@ class ReviewAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     actions = ["make_unavailable"]
-    inlines = [ProductMediaInline, ProductAttributeInline]
-    list_display = ["name", "category", "in_stock", "store", "available"]
-    readonly_fields = ["rating", "quantity_sold"]
-    list_editable = ["category", "available", "in_stock"]
-    list_filter = ["available", "category", "created", "store"]
+    inlines = [ProductMediaInline, ProductAttributeInline, ProductVariantInline]
+    list_display = ["name", "category", "total_stock_level", "store", "is_available"]
+    readonly_fields = ["rating", "total_sold"]
+    list_editable = ["category", "is_available", "total_stock_level"]
+    list_filter = ["is_available", "category", "created", "store"]
     preserve_filters = True
     search_fields = ["name"]
 
@@ -139,45 +167,3 @@ class ProductAdmin(admin.ModelAdmin):
             ),
             messages.SUCCESS,
         )
-
-
-@admin.register(Offer)
-class OfferAdmin(admin.ModelAdmin):
-    list_display = ["__str__", "store", "available_to", "discount_type", "has_expired"]
-    readonly_fields = ["store"]
-    form = OfferModelForm
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs if request.user.is_superuser else qs.filter(store__owner=request.user)
-
-    def get_form(self, request, obj=None, change=False, **kwargs):
-        form = super().get_form(request, obj, change, **kwargs)
-        form.set_current_user(request.user)
-        return form
-
-
-@admin.register(Voucher)
-class VoucherAdmin(admin.ModelAdmin):
-    form = VoucherModelForm
-    list_display = ["__str__", "code", "offer", "usage_type", "num_of_usage"]
-    readonly_fields = ["num_of_usage"]
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs if request.user.is_superuser else qs.filter(offer__store__owner=request.user)
-
-    def get_form(self, request, obj=None, change=False, **kwargs):
-        form = super().get_form(request, obj, change, **kwargs)
-        form.set_current_user(request.user)
-        return form
-
-
-@admin.register(RedeemedVoucher)
-class RedeemedVoucherAdmin(admin.ModelAdmin):
-    list_display = ["voucher", "customer", "date_redeemed"]
-    readonly_fields = list_display
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs if request.user.is_superuser else qs.filter(voucher__offer__store__owner=request.user)

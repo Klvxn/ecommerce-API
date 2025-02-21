@@ -1,11 +1,9 @@
 from django import forms
 
-from .models import Product, ProductAttribute
-from .vouchers.models import Offer, Voucher
+from .models import Product, ProductAttribute, VariantAttribute
 
 
 class CustomBaseModelForm(forms.ModelForm):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -18,36 +16,34 @@ class CustomBaseModelForm(forms.ModelForm):
 
 
 class AttributeModelForm(CustomBaseModelForm):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if current_user:= self.current_user:
+        if current_user := self.current_user:
             self.fields["product"].queryset = Product.objects.filter(store__owner=current_user)
 
     class Meta(CustomBaseModelForm.Meta):
         model = ProductAttribute
 
 
-class OfferModelForm(CustomBaseModelForm):
-
+class VariantAttributeInlineForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if current_user:= self.current_user:
-            self.fields["eligible_products"].queryset = Product.objects.filter(store__owner=current_user)
+        if self.instance and self.instance.variant_id:
+            # Filter attributes to only show those belonging to the product
+            print("testing 1")
+            product = self.instance.variant.product
+            self.fields["attribute"].queryset = ProductAttribute.objects.filter(product=product)
+        elif "request" in kwargs.get("initial", {}):
+            # For new variants, try to get product_id from request
+            print("testing 3")
+            request = kwargs["initial"]["request"]
+            if "product" in request.GET:
+                product_id = request.GET["product"]
+                self.fields["attribute"].queryset = ProductAttribute.objects.filter(product_id=product_id)
+            else:
+                print("testing 2")
+                self.fields["attribute"].queryset = ProductAttribute.objects.none()
 
-    class Meta(CustomBaseModelForm.Meta):
-        model = Offer
-
-
-class VoucherModelForm(CustomBaseModelForm):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if current_user:= self.current_user:
-            queryset_1 = self.fields["offer"].queryset
-            self.fields["offer"].queryset = queryset_1.intersection(
-                Offer.objects.filter(store__owner=current_user)
-            )
-
-    class Meta(CustomBaseModelForm.Meta):
-        model = Voucher
+    class Meta:
+        model = VariantAttribute
+        fields = ["attribute", "value"]

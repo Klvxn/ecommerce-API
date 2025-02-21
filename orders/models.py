@@ -1,11 +1,12 @@
+from decimal import Decimal as D
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
-from django.db import models
+from django.db import models, transaction
 
-from catalogue.models import Timestamp, Product
-from catalogue.vouchers.models import Voucher
+from catalogue.models import Product, ProductVariant, Timestamp
 from customers.models import Address
+from discount.models import Offer, Voucher
 
 
 # Create your models here.
@@ -32,6 +33,14 @@ class Order(Timestamp):
         default=OrderStatus.AWAITING_PAYMENT,
         max_length=16,
     )
+    applied_offer = models.ForeignKey(
+        Offer,
+        on_delete=models.SET_NULL,
+        related_name="order_offers",
+        null=True,
+        blank=True,
+    )
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True)
 
     class Meta:
         ordering = ["-created"]
@@ -45,76 +54,168 @@ class Order(Timestamp):
         return str(self.id)
 
     @property
+    def is_paid(self):
+        return self.status == self.OrderStatus.PAID
+
+    @property
     def items_count(self):
-        return Order.objects.get(id=self.id).annotate(total_items=models.Sum("items__quantity"))
-
-    def redeem_voucher_offer(self, voucher_code):
         """
-        Apply a voucher offer to the order items in an order
-
-        This method checks each item in the order to see if the provided voucher code
-        applies to any of the products in the order. If the voucher is valid and applicable,
-        the discount is applied.
-
-        Args:
-            voucher_code (str): The code of the voucher to redeem
+        Get the total quantity of all items in the order.
 
         Returns:
-            offer (Offer or None): The offer applied to the order items if voucher is
-            valid. None if the voucher is invalid
+            int: Total quantity of items.
         """
+        return self.items.aggregate(total_items=models.Sum("quantity"))["total_items"] or 0
 
-        items = self.items.select_related("product").all()
-        product_ids = [item.product_id for item in items]
-        voucher = (
-            Voucher.objects.filter(
-                code=voucher_code.upper(), offer__eligible_products__id__in=product_ids
-            )
-            .select_related("offer")
-            .first()
-        )
+    def save(self, *args, **kwargs):
+        self.total_amount = self.subtotal() + self.total_shipping()
+        super().save(*args, **kwargs)
 
-        if not (voucher and voucher.is_valid()):
-            return None
-
-        items_to_update = []
-        offer = voucher.offer
-
-        for item in items:
-            if item.product_id in product_ids:
-                if offer.for_product:
-                    item.discounted_price = offer.apply_discount(item.unit_price)
-                if offer.for_shipping:
-                    item.discounted_shipping = offer.apply_discount(item.shipping_fee)
-                item.offer = offer
-                items_to_update.append(item)
-
-        OrderItem.objects.bulk_update(
-            items_to_update, ["discounted_price", "discounted_shipping", "offer"]
-        )
-
-        return offer
-
-    def total_shipping_fee(self):
+    def subtotal(self):
         """
-        Calculates the total shipping fee for the order.
-
-        Returns:
-            Decimal: The total shipping fee.
-        """
-        total_shipping = sum(item.get_shipping() for item in self.items.all())
-        return total_shipping
-
-    def total_cost(self):
-        """
-        Calculates the total cost of the order, including discounts and shipping.
+        Calculate the subtotal of the order, excluding shipping and discounts.
 
         Returns:
             Decimal: The total cost of the order.
         """
-        order_cost = sum(items.calculate_subtotal() for items in self.items.all())
-        total_cost = order_cost + self.total_shipping_fee()
-        return total_cost
+        total_cost = self.items.aggregate(
+            total=models.Sum(
+                models.F("total_price"),
+                output_field=models.DecimalField(),
+            ),
+        )
+        return total_cost["total"] or 0
+
+    def total_shipping(self):
+        """
+        Calculates the total shipping fee for the order.
+
+        Returns:
+            Decimal: The total shipping fee for all items in the order.
+        """
+        return (
+            self.items.aggregate(
+                total_shipping=models.Sum(
+                    models.F("discounted_shipping"),
+                    output_field=models.DecimalField(),
+                )
+            )["total_shipping"]
+            or 0
+        )
+
+    @transaction.atomic
+    def apply_offer(self, offer=None, voucher_code=None):
+        """
+        Apply an offer or voucher to the order items if eligible.
+
+        This method handles both direct offers (typically from promotions) and
+        voucher-based offers. It applies the appropriate discounts to eligible
+        order items based on the offer's type and target.
+
+        Args:
+            offer (Offer, optional): A direct offer to apply. Default is None.
+            voucher_code (str, optional): The code of a voucher to redeem. Default is None.
+
+        Returns:
+            Offer or None: The applied offer if successfully applied, otherwise None.
+        """
+        # Validate input: either offer or voucher_code must be provided, but not both
+        if not (offer or voucher_code) or (offer and voucher_code):
+            return None
+
+        # If voucher code is provided, try to get the associated offer
+        if voucher_code:
+            try:
+                voucher = Voucher.objects.filter(code=voucher_code.upper()).select_related("offer").get()
+
+                if not voucher.is_valid():
+                    return None
+
+                offer_to_apply = voucher.offer
+                voucher.update_usage_count()
+
+            except Voucher.DoesNotExist:
+                return None
+        else:
+            offer_to_apply = offer
+
+        # Fetch all items in the order with their related products
+        items = self.items.select_related("product").all()
+        if not items:
+            return None
+
+        # Track which items will need updating
+        items_to_update = []
+
+        # Handle different offer types
+        if offer_to_apply.is_free_shipping:
+            # Apply free shipping to all items
+            for item in items:
+                item.discounted_shipping = D("0.00")
+                item.applied_offer = offer_to_apply
+                items_to_update.append(item)
+
+        elif offer_to_apply.for_product:
+            # For product-level offers, we need to check eligibility per product
+            eligible_product_ids = []
+
+            # Get eligible products if there are conditions
+            try:
+                condition = offer_to_apply.conditions.filter(condition_type="specific_products").first()
+                if condition:
+                    eligible_product_ids = list(condition.eligible_products.values_list("id", flat=True))
+            except AttributeError:
+                # If there's no condition, assume all products are eligible
+                pass
+
+            for item in items:
+                # Check if this product is eligible (if we have restrictions)
+                if eligible_product_ids and item.product.id not in eligible_product_ids:
+                    continue
+
+                # Apply the discount to the item's price
+                item.discounted_price = offer_to_apply.apply_discount(item.unit_price)
+                item.applied_offer = offer_to_apply
+                items_to_update.append(item)
+
+        elif offer_to_apply.for_order:
+            # For order-level offers, check if the order meets conditions
+            try:
+                conditions = offer_to_apply.conditions.filter(
+                    condition_type__in=["min_order_value", "customer_groups"]
+                )
+                for condition in conditions:
+                    # Check minimum order value if specified
+                    if condition.min_order_value is not None:
+                        if self.subtotal() < condition.min_order_value:
+                            return None
+
+                    # Check customer eligibility if specified
+                    if condition.eligible_customers == "first_time_buyers" and not getattr(
+                        self.customer, "is_first_time_buyer", False
+                    ):
+                        return None
+            except AttributeError:
+                # If we can't check conditions, proceed anyway
+                pass
+
+            # Add the offer to the order itself
+            new_subtotal = offer_to_apply.apply_discount(self.subtotal())
+            self.total_amount = new_subtotal + self.total_shipping()
+            self.applied_offer = offer_to_apply
+            self.save()
+
+        # Only update if we have items to update
+        if items_to_update:
+            # Bulk update order items with the applied discounts
+            OrderItem.objects.bulk_update(
+                items_to_update, ["discounted_price", "discounted_shipping", "applied_offer"]
+            )
+
+            # Update total amount for the order
+            return offer_to_apply
+
+        return None
 
 
 class OrderItem(Timestamp):
@@ -123,46 +224,46 @@ class OrderItem(Timestamp):
     """
 
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    selected_attrs = models.JSONField(null=True, blank=True)
+    product_variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True)
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     discounted_price = models.DecimalField(max_digits=10, decimal_places=2, null=True)
     quantity = models.PositiveIntegerField(default=1)
-    offer = models.ForeignKey("catalogue.Offer", on_delete=models.SET_NULL, null=True, blank=True)
+    applied_offer = models.ForeignKey(Offer, on_delete=models.SET_NULL, null=True, blank=True)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True)
     discounted_shipping = models.DecimalField(max_digits=10, decimal_places=2, null=True)
+    total_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        help_text="The total price for this order item excl. shipping",
+    )
 
     def __str__(self):
         return f"Item {self.id} in Order {self.order}"
 
-    def calculate_subtotal(self):
-        """
-        Calculates the total cost for this order item.
+    def save(self, *args, **kwargs):
+        if not self.total_price or self.discounted_price:
+            self.total_price = self._at_discounted_price()
+        else:
+            self.total_price = self._at_original_price()
+        super().save(*args, **kwargs)
 
-        Returns:
-            Decimal: The total cost of the item.
-        """
-        return (
-            self.cost_at_original_price()
-            if not self.discounted_price
-            else self.cost_at_discounted_price()
-        )
-
-    def cost_at_discounted_price(self):
+    def _at_discounted_price(self):
         """
         Calculates the total cost for this order item at the discounted price.
 
         Returns:
-            Decimal: The total cost at the discounted price.
+            Decimal: The total price at the discounted price.
         """
         return self.discounted_price * self.quantity
 
-    def cost_at_original_price(self):
+    def _at_original_price(self):
         """
         Calculates the total cost for this order item at the original product's price.
 
         Returns:
-            Decimal: The total cost at the original price.
+            Decimal: The total price at the original price.
         """
         return self.unit_price * self.quantity
 
@@ -188,35 +289,24 @@ class OrderItem(Timestamp):
         Returns:
             int: The number of records that was created
         """
-
-        product_names = {item["product"] for item in user_cart}
-        products = {prod.name: prod for prod in Product.objects.filter(name__in=product_names)}
-
         order_items = []
+        for item_data in user_cart:
+            discounted_price = item_data.get("discount", {}).get("discounted_price")
+            discounted_shipping = item_data.get("discount", {}).get("discounted_shipping")
+            offer_id = item_data.get("discount", {}).get("offer_id")
 
-        for item in user_cart:
-            # Process discount information
-            offer_id = None
-            discounted_price = None
-            discounted_shipping = None
-
-            if discount := item.get("discount"):
-                offer_id = discount.get("offer_id")
-                discounted_price = discount.get("discounted_price")
-                discounted_shipping = discount.get("discounted_shipping")
-
-            # Create OrderItem instance (without saving since we are using bulk_create)
+            # Create OrderItem instance
             order_items.append(
                 cls(
                     order=order,
-                    product=products[item["product"]],
-                    quantity=item["quantity"],
-                    unit_price=item["price"],
+                    product_variant=ProductVariant.objects.filter(pk=item_data["variant_id"]).first(),
+                    product=Product.objects.get(pk=item_data["product_id"]),
+                    unit_price=item_data["price"],
                     discounted_price=discounted_price,
+                    quantity=item_data["quantity"],
+                    shipping_fee=item_data["shipping"],
                     discounted_shipping=discounted_shipping,
-                    offer_id=offer_id,
-                    shipping_fee=item["shipping"],
-                    selected_attrs=item.get("selected_attrs"),
+                    applied_offer_id=offer_id,
                 )
             )
 

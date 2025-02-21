@@ -1,34 +1,83 @@
-from datetime import datetime, timezone
-
-from django.shortcuts import redirect
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import exceptions, status
-from rest_framework.generics import GenericAPIView, get_object_or_404
+from rest_framework.decorators import api_view
+from rest_framework.generics import GenericAPIView, ListAPIView, RetrieveAPIView, get_object_or_404
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from cart.cart import Cart
-from .models import Product, Review
+
+from .models import Category, Product, Review
 from .serializers import (
+    CategoryInstanceSerializer,
+    CategoryListSerializer,
     ProductInstanceSerializer,
+    ProductListSerializer,
     ProductReviewSerializer,
-    ProductsListSerializer,
-    AddToCartSerializer,
 )
-from .vouchers.models import Voucher, Offer
 
 
 # Create your views here.
-class ProductsListView(GenericAPIView, LimitOffsetPagination):
+class CategoryListView(ListAPIView):
+    """
+    View to list products with filtering, searching, and pagination.
+    """
+
+    queryset = Category.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = CategoryListSerializer
+    search_fields = ["name"]
+
+    @extend_schema(
+        summary="Get all product categories",
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                description="Search categories",
+                location=OpenApiParameter.QUERY,
+                type=OpenApiTypes.STR,
+            )
+        ],
+        responses={200: CategoryListSerializer(many=True)},
+        tags=["Category"],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class CategoryInstanceView(RetrieveAPIView):
+    """
+    Includes method to retrieve a single product category.
+    """
+
+    http_method_names = ["get"]
+    queryset = Category.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = CategoryInstanceSerializer
+
+    @extend_schema(
+        summary="Retrieve a category and its associated products",
+        responses={200: CategoryInstanceSerializer(), 404: "Not Found"},
+        tags=["Category"],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+
+class ProductListView(GenericAPIView, LimitOffsetPagination):
     """
     View to list products with filtering, searching, and pagination.
     """
 
     permission_classes = [AllowAny]
-    serializer_class = ProductsListSerializer
-    filterset_fields = ["category", "available", "store"]
+    serializer_class = ProductListSerializer
+    filterset_fields = ["category", "is_available", "store"]
     search_fields = ["name", "category__name", "label", "store__brand_name"]
 
     def get_queryset(self):
@@ -36,17 +85,17 @@ class ProductsListView(GenericAPIView, LimitOffsetPagination):
         queryset = self.filter_queryset(queryset)
         return queryset
 
-    @swagger_auto_schema(
-        operation_summary="Get all available products",
-        manual_parameters=[
-            openapi.Parameter(
+    @extend_schema(
+        summary="Get all available products",
+        parameters=[
+            OpenApiParameter(
                 name="search",
-                in_=openapi.IN_QUERY,
-                type=openapi.TYPE_STRING,
                 description="Search products",
+                location=OpenApiParameter.QUERY,
+                type=OpenApiTypes.STR,
             )
         ],
-        responses={200: ProductsListSerializer(many=True)},
+        responses={200: ProductListSerializer(many=True)},
         tags=["Product"],
     )
     def get(self, request, slug=None):
@@ -74,8 +123,8 @@ class ProductInstanceView(GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = ProductInstanceSerializer
 
-    @swagger_auto_schema(
-        operation_summary="Retrieve a product",
+    @extend_schema(
+        summary="Retrieve a product",
         responses={200: ProductInstanceSerializer(), 404: "Not Found"},
         tags=["Product"],
     )
@@ -85,124 +134,28 @@ class ProductInstanceView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProductCartView(GenericAPIView):
-    """
-    View for adding a product to a customer's cart.
-    """
-
-    queryset = Product.objects.all()
-    permission_classes = [AllowAny]
-    http_method_names = ["post"]
-    serializer_class = AddToCartSerializer
-
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context["product_id"] = self.kwargs["pk"]
-        return context
-
-    def get_applicable_offers(self, offers, customer, order_value):
-        """
-        Determines the best applicable offer on a product based on the order value
-
-        Args:
-            offers (Queryset): A queryset of offers on a product
-            customer (Customer): The customer making the order
-            order_value (Decimal): The total value of the order
-
-        Returns:
-            Offer or str: The best applicable offer or "Not authenticated" if the customer
-            requires log in.
-        """
-
-        for offer in offers.filter(min_order_value__lte=order_value):
-            if offer.to_all_customers:
-                return offer
-            if offer.to_first_time_buyers:
-                if not customer.is_authenticated:
-                    return "Not authenticated"
-                elif customer.is_first_time_buyer():
-                    return offer
-        return None
-
-    @swagger_auto_schema(
-        operation_summary="Add a product to cart",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["quantity", "attribute_values"],
-            properties={
-                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
-                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
-                "attribute_values": openapi.Schema(type=openapi.TYPE_OBJECT),
-            },
-            example={
-                "quantity": 12,
-                "discount_code": "BLACKFRIDAY024",
-                "attribute_values": {
-                    "size": "XL",
-                    "colour": "Green",
-                },
-            },
-        ),
-        tags=["Product"],
-    )
-    def post(self, request, pk):
-        user_cart = Cart(request)
-        product = get_object_or_404(self.queryset, pk=pk)
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        quantity = serializer.validated_data["quantity"]
-        selected_attrs = serializer.validated_data["attribute_values"]
-        discount_code = serializer.validated_data.get("discount_code")
-
-        # Offers available and valid for the product
-        product_offers = Offer.objects.filter(
-            eligible_products=product,
-            valid_from__lte=datetime.now(timezone.utc),
-            valid_to__gte=datetime.now(timezone.utc),
-        )
-        order_value = product.price * quantity
-
-        # Process the cart without discount code
-        if not discount_code:
-            # Get an offer that does not require a voucher code but open to customers
-            open_offer = self.get_applicable_offers(
-                product_offers.filter(available_to__in=["All customers", "First time buyers"]),
-                request.user,
-                order_value,
-            )
-
-            if open_offer == "Not authenticated":
-                return redirect(f"/auth/login/?next={self.request.path}")
-
-            (
-                user_cart.add_item(product, quantity, open_offer, attrs=selected_attrs)
-                if open_offer
-                else user_cart.add_item(product, quantity, attrs=selected_attrs)
-            )
-
-            return Response(
-                {"success": f"{product} has been added to cart"},
-                status=status.HTTP_200_OK,
-            )
-
-        # With discount code
-        voucher = Voucher.objects.filter(code=discount_code).first()
-        if voucher.offer not in product_offers:
-            return Response({"error": "In-applicable voucher code"}, status=status.HTTP_400_BAD_REQUEST)
-
-        is_valid, _msg = voucher.is_valid(request.user, order_value)
-        if not is_valid:
-            return Response({"error": _msg}, status=status.HTTP_400_BAD_REQUEST)
-
-        user_cart.add_item(product, quantity, offer=voucher.offer, attrs=selected_attrs)
-        return Response(
-            {"success": f"{product} has been added to cart"},
-            status=status.HTTP_200_OK,
-        )
+@api_view(["GET"])
+def load_product_attrs(request, pk):
+    product = get_object_or_404(Product, id=pk)
+    attrs = product.attributes.values("id", "name")
+    resp = [{"id": attr["id"], "name": attr["name"]} for attr in attrs]
+    return Response(resp)
 
 
-class ProductReviewView(GenericAPIView):
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get all reviews for a product",
+        responses={200: ProductReviewSerializer(many=True)},
+        tags=["Review"],
+    ),
+    post=extend_schema(
+        summary="Add a review for a product",
+        request=ProductReviewSerializer,
+        responses={201: ProductReviewSerializer, 400: "Bad request"},
+        tags=["Review"],
+    ),
+)
+class ProductReviewView(APIView):
     """
     Handles review actions for products.
 
@@ -219,21 +172,11 @@ class ProductReviewView(GenericAPIView):
             permission_classes = self.permission_classes
         return [permission() for permission in permission_classes]
 
-    @swagger_auto_schema(
-        operation_summary="Get all reviews for a product",
-        responses={200: ProductReviewSerializer(many=True)},
-        tags=["Review"],
-    )
     def get(self, request, product_id):
         product = get_object_or_404(Product, pk=product_id)
         serializer = self.get_serializer(product.reviews.all(), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @swagger_auto_schema(
-        operation_summary="Add a review for a product",
-        responses={201: ProductReviewSerializer(), 400: "Bad Request"},
-        tags=["Review"],
-    )
     def post(self, request, product_id):
         product = get_object_or_404(Product, pk=product_id)
         customer = request.user
@@ -254,7 +197,20 @@ class ProductReviewView(GenericAPIView):
         return Response({"error": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ProductReviewInstance(GenericAPIView):
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get a product's review",
+        responses={200: ProductReviewSerializer, 404: "Review doesn't exist"},
+        tags=["Review"],
+    ),
+    put=extend_schema(
+        summary="Update a product's review",
+        responses={200: ProductReviewSerializer, 400: "Bad request", 404: "Review doesn't exist"},
+        tags=["Review"],
+    ),
+    delete=extend_schema(summary="Delete a product's review", tags=["Review"]),
+)
+class ProductReviewInstance(APIView):
     """
     View to manage a single product review.
     """
@@ -285,21 +241,11 @@ class ProductReviewInstance(GenericAPIView):
             )
         return super().dispatch(request, *args, **kwargs)
 
-    @swagger_auto_schema(
-        operation_summary="Get a product's review",
-        responses={200: ProductReviewSerializer(), 400: "Not Found"},
-        tags=["Review"],
-    )
     def get(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
         serializer = self.get_serializer(review)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @swagger_auto_schema(
-        operation_summary="Update a product's review",
-        responses={200: ProductReviewSerializer, 400: "Bad Request", 404: "Not Found"},
-        tags=["Review"],
-    )
     def put(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
         serializer = self.get_serializer(instance=review, data=request.data)
@@ -310,7 +256,6 @@ class ProductReviewInstance(GenericAPIView):
 
         return Response({"error": "Bad request"}, status=status.HTTP_400_BAD_REQUEST)
 
-    @swagger_auto_schema(operation_summary="Delete a product's review", tags=["Review"])
     def delete(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
         review.delete()

@@ -1,4 +1,3 @@
-import hashlib
 from decimal import Decimal
 
 
@@ -13,6 +12,7 @@ class Cart:
     """
 
     def __init__(self, request):
+        self.customer = request.user
         self.session = request.session
         self.session.set_expiry(1800)
         cart = self.session.get("cart")
@@ -27,67 +27,119 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    @staticmethod
-    def generate_item_id(product, attrs):
-        """
-        Generates a unique identifier for cart item based on the product and its
-        attributes.
+    def add(self, product_variant, quantity, offer=None):
+        product_id = product_variant.product.id
+        variant_id = product_variant.id
+        price = product_variant.final_price
+        shipping = product_variant.product.shipping_fee or 0
+        item_type = "variant" if not product_variant.is_standalone else "standalone"
+        attributes = product_variant.variant_attributes
+        discount = self._apply_offer(product_variant.product, offer) if offer else None
 
-        Args:
-            product (Product): The product being added to the cart, for which the ID
-            is being generated.
-            attrs (dict): A dictionary of attributes and their values.
-
-        Returns:
-            str: A unique item ID string.
-        """
-        to_hash = f"{product.id}_{product.name}_{attrs}"
-        hash = hashlib.sha1(to_hash.encode()).hexdigest()
-        return f"{product.id}_{hash[-12:]}"
-
-    def add_item(self, product, quantity, attrs=None, offer=None):
-        """
-        Adds a product to the cart or updates its quantity if it already exists. Applies a discount if provided.
-
-        Args:
-            product (Product): The product to add or update.
-            quantity (int): The quantity of the product.
-            attrs: (dict)
-            offer (Offer, optional): The offer object to apply. Defaults to None.
-
-        Returns:
-            bool: True if the cart was successfully saved.
-        """
-        item_id = self.generate_item_id(product, attrs)
-
-        base_price = product.price
-        if attrs:
-            for attr_name, attr_value in attrs.items():
-                product_attr = product.attributes.filter(name=attr_name).first()
-                attr_value_obj = product_attr.values.get(value=attr_value)
-                base_price += attr_value_obj.price_adjustment
-
+        item_key = f"vart_{product_id}_{variant_id}"
         item = self.cart.get(
-            item_id,
+            item_key,
             {
-                "product": product.name,
-                "price": float(base_price),
+                "product": product_variant.name,
+                # "product_id": product_id,
+                "variant_id": variant_id,
+                "price": float(price),
                 "quantity": 0,
-                "shipping": float(product.shipping_fee) if product.shipping_fee else 0,
+                "shipping": float(shipping),
+                "type": item_type,
+                "attributes": attributes,
             },
         )
         item["quantity"] = quantity
-        item["selected_attrs"] = attrs
+        if discount:
+            item["discount"] = discount
 
-        if offer:
-            item["discount"] = self._apply_offer(product, offer)
-
-        self.cart[item_id] = item
+        self.cart[item_key] = item
         return self.save()
+
+    def update(self, item_key, quantity):
+        self.cart[item_key]["quantity"] = quantity
+        return self.save()
+
+    def remove(self, item_key):
+        if item_key not in self.cart:
+            return False
+        del self.cart[item_key]
+        return self.save()
+
+    def save(self):
+        self.session.modified = True
+        return True
+
+    def clear(self):
+        del self.session["cart"]
+        self.save()
+
+    def find_best_offer(self, product):
+        """
+        Finds the best applicable offer for this cart item.
+        Returns the offer that gives the highest discount.
+        """
+
+        # Get all active offers for the product
+        active_offers = product.get_active_offers(customer=self.customer)
+
+        # Combine all applicable offers
+        all_offers = list(active_offers["product_offers"]) + list(active_offers["category_offers"])
+
+        # Filter out offers that require vouchers
+        available_offers = [offer for offer in all_offers if not offer.requires_voucher]
+
+        if not available_offers:
+            return None
+
+        # Calculate the actual discount amount for each offer
+        offer_discounts = []
+        original_price = self.product.price * self.quantity
+
+        for offer in available_offers:
+            # Make sure the offer is valid for this specific purchase
+            is_valid, _ = offer.satisfies_conditions(product=self.product, customer=self.customer)
+
+            if is_valid:
+                discounted_price = offer.apply_discount(original_price)
+                discount_amount = original_price - discounted_price
+                offer_discounts.append((offer, discount_amount))
+
+        # Sort by discount amount and get the best offer
+        if offer_discounts:
+            best_offer, _ = max(offer_discounts, key=lambda x: x[1])
+            return best_offer
+
+        return None
+
+    def apply_best_offer(self, product):
+        """
+        Finds and applies the best available offer to this cart item.
+        Updates the cart item with the applied offer and new price.
+        """
+        discount = {}
+        best_offer = self.find_best_offer()
+
+        if best_offer:
+            if best_offer.is_free_shipping and product.shipping_fee:
+                discount["discounted_shipping"] = float(0.0)
+            else:
+                original_price = product.base_price
+                discounted_price = best_offer.apply_discount(original_price)
+                discount["discounted_price"] = float(discounted_price)
+
+            # Update offer usage statistics if needed
+            # best_offer.update_total_discount(original_price - discounted_price)
+
+            discount["applied_offer_id"] = best_offer.id
+            return True, f"Applied offer: {best_offer.title}", discount
+
+        return False, "No applicable offers found"
 
     def _apply_offer(self, product, offer):
         """
-        Applies discount and offers to a product in the cart
+        Applies discount offers to a product in the cart
 
         Args:
             product (Product):
@@ -98,65 +150,19 @@ class Cart:
         """
         discount = {}
 
-        if offer.for_product:
-            discounted_price = self._apply_product_discount(product, offer)
-            discount["discounted_price"] = float(discounted_price)
+        if not offer.is_free_shipping:
+            if offer.for_product:
+                discounted_price = self._apply_product_discount(product, offer)
+                discount["discounted_price"] = float(discounted_price)
+            # else:
+            #     discounted_total = self._apply_order_discount(offer, self.subtotal())
+            #     discount["order_discount"] = float(discounted_total)
 
-        elif offer.for_shipping and product.shipping_fee:
-            discounted_shipping = self._apply_shipping_discount(product, offer)
-            discount["discounted_shipping"] = float(discounted_shipping)
+        elif offer.is_free_shipping and product.shipping_fee:
+            discount["discounted_shipping"] = float(0.0)
 
-        discount.update({"offer_id": offer.id, "offer_type": offer.available_to})
+        discount.update({"offer_id": offer.id})
         return discount
-
-    def update_item(self, item_id, quantity):
-        """
-        Updates the quantity of a product in the cart.
-
-        Args:
-            item_id (str): The ID of the item to update.
-            quantity (int): The new quantity of the product.
-
-        Returns:
-            bool: True if the cart was successfully saved.
-        """
-        self.cart[item_id]["quantity"] = quantity
-        return self.save()
-
-    def save(self):
-        """
-        Marks the session as modified to ensure the cart is saved.
-
-        Returns:
-            bool: True if the session was marked as modified.
-        """
-        self.session.modified = True
-        return True
-
-    def remove_item(self, item_id):
-        """
-        Removes a product from the cart.
-
-        Args:
-            item_id (str): The ID of the item to remove.
-
-        Returns:
-            bool: True if the cart was successfully saved.
-        """
-        if item_id not in self.cart:
-            return False
-        del self.cart[item_id]
-        return self.save()
-
-    def clear(self):
-        """
-        Clears all items from the cart.
-
-        Returns:
-            None
-        """
-        del self.session["cart"]
-        self.save()
 
     @staticmethod
     def _apply_product_discount(product, offer):
@@ -170,23 +176,22 @@ class Cart:
         Returns:
             Decimal: The discounted price if the discount is valid.
         """
-        product_price = product.price
-        return offer.apply_discount(product_price)
+        return offer.apply_discount(product.base_price)
 
     @staticmethod
-    def _apply_shipping_discount(product, offer):
+    def _apply_order_discount(offer, order_total):
         """
-        Applies a discount to shipping fee of a product in the cart.
+        Applies a discount to the total cost of items (exc. shipping) in the cart.
 
         Args:
-            product (Product): The product to apply the discount to.
             offer (Offer): The offer object to apply.
+            order_total (float): The subtotal of items in the cart.
 
         Returns:
-            Decimal: The discounted shipping fee if the discount is valid.
+            Decimal: The discounted total
         """
-        product_shipping = product.shipping_fee
-        return offer.apply_discount(product_shipping)
+        if not offer.is_free_shipping:
+            return offer.apply_discount(order_total)
 
     @staticmethod
     def calculate_item_cost(item):
@@ -205,13 +210,7 @@ class Cart:
             else Decimal(item["discount"].get("discounted_price")) * item["quantity"]
         )
 
-    def total_shipping_fee(self):
-        """
-        Calculates the total shipping fee for all items in the cart.
-
-        Returns:
-            Decimal: The total shipping fee.
-        """
+    def total_shipping(self):
         try:
             return sum(
                 Decimal(value.get("shipping", 0))
@@ -223,19 +222,7 @@ class Cart:
             return sum(Decimal(value.get("shipping", 0)) for value in self.cart.values())
 
     def subtotal(self):
-        """
-        Calculates the cost of all items in the cart, excluding shipping.
-
-        Returns:
-            Decimal: The total cost.
-        """
         return sum(self.calculate_item_cost(item) for item in self.cart.values())
 
-    def total_cost(self):
-        """
-        Calculates the total cost of all items in the cart, including shipping.
-
-        Returns:
-            Decimal: The total cost.
-        """
-        return self.subtotal() + self.total_shipping_fee()
+    def total(self):
+        return self.subtotal() + self.total_shipping()
