@@ -1,9 +1,17 @@
 from rest_framework import serializers
-from rest_framework.generics import get_object_or_404
 
-from .models import Category, Product, ProductMedia, ProductVariant, Review, ReviewImage, VariantAttribute
-from discount.models import Offer
+from discount.models import OfferCondition
 from discount.serializers import OfferSerializer
+
+from .models import (
+    Category,
+    Product,
+    ProductMedia,
+    ProductVariant,
+    Review,
+    ReviewImage,
+    VariantAttribute,
+)
 
 
 class ReviewImageSerializer(serializers.ModelSerializer):
@@ -56,7 +64,8 @@ class VariantAttributeSerializer(serializers.ModelSerializer):
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
-    variant_attributes = VariantAttributeSerializer(many=True)
+    # allow_null: for standalone products with no attributes
+    attributes = VariantAttributeSerializer(many=True, allow_null=True)
 
     class Meta:
         model = ProductVariant
@@ -76,6 +85,11 @@ class ProductListSerializer(serializers.ModelSerializer):
 
 
 class ProductInstanceSerializer(ProductListSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "product" in self.context:
+            self.product = self.context["product"]
+
     reviews = ProductReviewSerializer(many=True)
     variants = ProductVariantSerializer(many=True)
     product_offers = serializers.SerializerMethodField()
@@ -85,8 +99,14 @@ class ProductInstanceSerializer(ProductListSerializer):
         fields = "__all__"
 
     def get_product_offers(self, obj):
-        filtered_offers = Offer.objects.filter(target="Product")
-        return OfferSerializer(filtered_offers, many=True).data
+        # filtered_offers = Offer.objects.filter(target="Product")
+        # return OfferSerializer(filtered_offers, many=True).data
+        conditions = OfferCondition.objects.filter(
+            condition_type="specific_products",
+            eligible_products=self.product,
+            offer__is_active=True,
+        )
+        return OfferSerializer([cond.offer for cond in conditions], many=True).data if conditions else None
 
 
 class SimpleProductSerializer(serializers.ModelSerializer):

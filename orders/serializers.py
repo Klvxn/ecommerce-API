@@ -73,7 +73,7 @@ class OrderSerializer(serializers.ModelSerializer):
     total_discount = serializers.SerializerMethodField(read_only=True)
     subtotal = serializers.SerializerMethodField(read_only=True)
     shipping = serializers.SerializerMethodField(read_only=True)
-    total_savings = serializers.SerializerMethodField(read_only=True)
+    savings = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
@@ -86,7 +86,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "address",
             "items",
             "items_count",
-            "total_savings",
+            "savings",
             "status",
             "subtotal",
             "shipping",
@@ -96,16 +96,8 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_subtotal(self, obj):
         return float(obj.subtotal())
 
-    def get_total_savings(self, obj):
-        total = Decimal("0.00")
-        for item in obj.items.all():
-            if item.discounted_price:
-                savings_per_unit = item.unit_price - item.discounted_price
-                total += savings_per_unit * item.quantity
-            if item.shipping_fee and item.discounted_shipping:
-                shipping_savings = item.shipping_fee - item.discounted_shipping
-                total += shipping_savings
-        return total.quantize(Decimal("0.00"))
+    def get_savings(self, obj):
+        return sum(item.savings for item in obj.items.all())
 
     def get_shipping(self, obj):
         return float(obj.total_shipping())

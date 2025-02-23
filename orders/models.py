@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
+from django.db.models import Case, F, When
 
 from catalogue.models import Product, ProductVariant, Timestamp
 from customers.models import Address
@@ -36,7 +37,7 @@ class Order(Timestamp):
     applied_offer = models.ForeignKey(
         Offer,
         on_delete=models.SET_NULL,
-        related_name="order_offers",
+        related_name="order_offer",
         null=True,
         blank=True,
     )
@@ -224,48 +225,29 @@ class OrderItem(Timestamp):
     """
 
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
-    product_variant = models.ForeignKey(ProductVariant, on_delete=models.SET_NULL, null=True)
-    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     discounted_price = models.DecimalField(max_digits=10, decimal_places=2, null=True)
     quantity = models.PositiveIntegerField(default=1)
     applied_offer = models.ForeignKey(Offer, on_delete=models.SET_NULL, null=True, blank=True)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True)
     discounted_shipping = models.DecimalField(max_digits=10, decimal_places=2, null=True)
-    total_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        null=True,
-        help_text="The total price for this order item excl. shipping",
+    total_price = models.GeneratedField(
+        expression=Case(
+            When(discounted_price__isnull=False, then=F("discounted_price") * F("quantity")),
+            default=F("unit_price") * F("quantity"),
+        ),
+        output_field=models.DecimalField(max_digits=10, decimal_places=2),
+        db_persist=True,
     )
 
     def __str__(self):
         return f"Item {self.id} in Order {self.order}"
 
-    def save(self, *args, **kwargs):
-        if not self.total_price or self.discounted_price:
-            self.total_price = self._at_discounted_price()
-        else:
-            self.total_price = self._at_original_price()
-        super().save(*args, **kwargs)
-
-    def _at_discounted_price(self):
-        """
-        Calculates the total cost for this order item at the discounted price.
-
-        Returns:
-            Decimal: The total price at the discounted price.
-        """
-        return self.discounted_price * self.quantity
-
-    def _at_original_price(self):
-        """
-        Calculates the total cost for this order item at the original product's price.
-
-        Returns:
-            Decimal: The total price at the original price.
-        """
-        return self.unit_price * self.quantity
+    @property
+    def savings(self):
+        return (self.unit_price - self.discounted_price) * self.quantity if self.discounted_price else 0
 
     def get_shipping(self):
         """
@@ -299,7 +281,7 @@ class OrderItem(Timestamp):
             order_items.append(
                 cls(
                     order=order,
-                    product_variant=ProductVariant.objects.filter(pk=item_data["variant_id"]).first(),
+                    variant=ProductVariant.objects.get(pk=item_data["variant_id"]),
                     product=Product.objects.get(pk=item_data["product_id"]),
                     unit_price=item_data["price"],
                     discounted_price=discounted_price,

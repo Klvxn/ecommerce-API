@@ -17,7 +17,7 @@ class Store(models.Model):
     owner = models.OneToOneField(Customer, on_delete=models.CASCADE)
     brand_name = models.CharField(max_length=50, unique=True, db_index=True)
     about = models.TextField()
-    followers = models.ManyToManyField(Customer, related_name="following")
+    followers = models.ManyToManyField(Customer, related_name="following", blank=True)
     slug = AutoSlugField(populate_from="brand_name", unique=True, always_update=True)
     date_joined = models.DateTimeField(auto_now_add=True)
     address = models.OneToOneField(Address, on_delete=models.RESTRICT, null=True)

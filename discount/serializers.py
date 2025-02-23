@@ -12,7 +12,11 @@ class VoucherSerializer(serializers.ModelSerializer):
 class OfferConditionSerializer(serializers.ModelSerializer):
     class Meta:
         model = OfferCondition
-        exclude = ["offer"]
+        exclude = ["offer", "created", "updated"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        return {key: value for key, value in data.items() if value is not None and value != []}
 
 
 class OfferSerializer(serializers.ModelSerializer):

@@ -1,0 +1,80 @@
+{% extends 'admin/change_form.html' %}
+{% load static %}
+
+{% block admin_change_form_document_ready %}
+{{ block.super }}
+<script>
+;(function($) {
+    'use strict';
+
+    /**
+     * Updates the attribute dropdown choices based on the selected product
+     * @param {string|number} productId - The ID of the selected product
+     */
+    function updateAttributeChoices(productId) {
+        const attributeSelects = document.querySelectorAll('[name*="-attribute"]');
+        
+        // Handle case when no product is selected
+        if (!productId) {
+            attributeSelects.forEach(select => {
+                select.innerHTML = '<option value="">---------</option>';
+                select.disabled = true;
+            });
+            return;
+        }
+
+        // Fetch and update attributes for selected product
+        fetch(`/api/v1/products/${productId}/attributes/`)
+            .then(response => response.json())
+            .then(attributes => {
+                attributeSelects.forEach(select => {
+                    const currentValue = select.value;
+                    
+                    // Reset select with empty option
+                    select.innerHTML = '<option value="">---------</option>';
+                    
+                    // Add new options
+                    attributes.forEach(attr => {
+                        const option = new Option(attr.name, attr.id);
+                        select.add(option);
+                    });
+                    
+                    // Restore previously selected value if still available
+                    if (currentValue && Array.from(select.options)
+                        .some(opt => opt.value === currentValue)) {
+                        select.value = currentValue;
+                    }
+                    
+                    select.disabled = false;
+                });
+            });
+    }
+
+    // Initialize when document is ready
+    $(document).ready(function() {
+        const productSelect = document.querySelector('#id_product');
+        
+        if (productSelect) {
+            // Initial update of attributes
+            updateAttributeChoices(productSelect.value);
+            
+            // Update attributes when product selection changes
+            productSelect.addEventListener('change', (e) => {
+                updateAttributeChoices(e.target.value);
+            });
+        }
+
+        // Handle dynamic form additions (Django admin inline formsets)
+        django.jQuery(document).on('formset:added', function(event, row, formCount) {
+            const productId = document.querySelector('#id_product').value;
+            const newSelect = row[0].querySelector('[name*="-attribute"]');
+            
+            if (newSelect && productId) {
+                updateAttributeChoices(productId);
+            }
+        });
+    });
+})(django.jQuery);
+</script>
+ <script src="{% static 'catalogue/admin/js/variant.js' %}"></script> 
+{% endblock %}

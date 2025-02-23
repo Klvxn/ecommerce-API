@@ -234,11 +234,13 @@ class Offer(TimeBased):
             # Check product-specific conditions for product-level offers
             elif self.for_product:
                 if condition.condition_type == "specific_products":
-                    if not condition.eligible_products.filter(id=product.id).exists():
+                    if not condition.eligible_products.filter(id=product.id, is_active=True).exists():
                         return False, "Product is not eligible for this offer"
 
                 elif condition.condition_type == "specific_categories":
-                    if not condition.eligible_categories.filter(id=product.category.id).exists():
+                    if not condition.eligible_categories.filter(
+                        id=product.category.id, is_active=True
+                    ).exists():
                         return False, "Product category is not eligible for this offer"
 
             # Check order-level conditions
@@ -313,24 +315,33 @@ class Offer(TimeBased):
 
         return order.subtotal() >= mov_condition.min_order_value
 
-    def assign_to_products(self, products):
+    def assign_to_products(self, products, condition):
         """
         Assign this offer to multiple products.
 
         Args:
             products: QuerySet or list of Product instances
         """
-        mappings = [ProductOffer(product=product, offer=self) for product in products]
+        if condition not in self.conditions.all():
+            raise ValueError("Condition does not belong to this offer")
+        mappings = [
+            ProductOffer(product=product, offer=self, condition_set=condition) for product in products
+        ]
         ProductOffer.objects.bulk_create(mappings, ignore_conflicts=True)
 
-    def assign_to_categories(self, categories):
+    def assign_to_categories(self, categories, condition):
         """
         Assign this offer to multiple categories.
 
         Args:
             categories: QuerySet or list of Category instances
         """
-        mappings = [CategoryOffer(category=category, offer=self) for category in categories]
+        if condition not in self.conditions.all():
+            raise ValueError("Condition does not belong to this offer")
+        mappings = [
+            CategoryOffer(category=category, offer=self, condition_set=condition)
+            for category in categories
+        ]
         CategoryOffer.objects.bulk_create(mappings, ignore_conflicts=True)
 
     def remove_from_products(self, products):
@@ -366,11 +377,16 @@ class OfferCondition(Timestamp):
     )
     eligible_customers = models.CharField(max_length=20, choices=CUSTOMER_GROUPS, null=True, blank=True)
     eligible_products = models.ManyToManyField(
-        "catalogue.Product", through="discount.ProductOffer", blank=True
+        "catalogue.Product",
+        blank=True,
     )
     eligible_categories = models.ManyToManyField(
-        "catalogue.Category", through="discount.CategoryOffer", blank=True
+        "catalogue.Category",
+        blank=True,
     )
+
+    class Meta:
+        unique_together = ("condition_type", "offer")
 
     def __str__(self):
         return f"Conditions for {self.offer}"
@@ -378,21 +394,6 @@ class OfferCondition(Timestamp):
     def above_min_purchase(self, order_value=0):
         if order_value and self.min_order_value is not None:
             return order_value >= self.min_order_value
-        return True
-
-    @classmethod
-    def satisfies_conditions(cls, customer, category, product, order_value):
-        if cls.offer.for_product:
-            if cls.condition_type == "specific_products" and product not in cls.eligible_products:
-                return False
-            if cls.condition_type == "specific_categories" and category not in cls.eligible_categories:
-                return False
-        elif cls.offer.for_order:
-            if cls.condition_type == "min_order_value" and order_value < cls.min_order_value:
-                return False
-        if cls.condition_type == "customer_groups":
-            if cls.eligible_customers == "first_time_buyers" and not customer.is_first_time_buyer:
-                return False
         return True
 
 

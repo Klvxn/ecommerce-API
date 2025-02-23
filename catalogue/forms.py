@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Product, ProductAttribute, VariantAttribute
+from .models import Product, Attribute, VariantAttribute
 
 
 class CustomBaseModelForm(forms.ModelForm):
@@ -22,7 +22,7 @@ class AttributeModelForm(CustomBaseModelForm):
             self.fields["product"].queryset = Product.objects.filter(store__owner=current_user)
 
     class Meta(CustomBaseModelForm.Meta):
-        model = ProductAttribute
+        model = Attribute
 
 
 class VariantAttributeInlineForm(forms.ModelForm):
@@ -32,17 +32,17 @@ class VariantAttributeInlineForm(forms.ModelForm):
             # Filter attributes to only show those belonging to the product
             print("testing 1")
             product = self.instance.variant.product
-            self.fields["attribute"].queryset = ProductAttribute.objects.filter(product=product)
+            self.fields["attribute"].queryset = Attribute.objects.all()
         elif "request" in kwargs.get("initial", {}):
             # For new variants, try to get product_id from request
             print("testing 3")
             request = kwargs["initial"]["request"]
             if "product" in request.GET:
                 product_id = request.GET["product"]
-                self.fields["attribute"].queryset = ProductAttribute.objects.filter(product_id=product_id)
+                self.fields["attribute"].queryset = Attribute.objects.all()
             else:
                 print("testing 2")
-                self.fields["attribute"].queryset = ProductAttribute.objects.none()
+                self.fields["attribute"].queryset = Attribute.objects.none()
 
     class Meta:
         model = VariantAttribute

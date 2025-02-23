@@ -87,50 +87,61 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        customer = request.user
         with transaction.atomic():
+            customer = request.user
             order = Order.objects.create(customer=customer)
 
             # Apply discount for a product if a voucher code is provided/applicable to the product
-            if discount_code:
-                if not order.redeem_voucher_offer(discount_code):
-                    return Response(
-                        {"error": "Invalid/Expired voucher code"}, status=status.HTTP_400_BAD_REQUEST
-                    )
+            if discount_code and not order.apply_voucher_offer(discount_code):
+                return Response(
+                    {"error": "Invalid/Expired voucher code"}, status=status.HTTP_400_BAD_REQUEST
+                )
 
-            # Validate that a shipping address is provided
+            #  A new shipping address is provided or use customer's address
             if not (shipping_address or customer.address):
                 return Response(
                     {"error": "Shipping address was not provided"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
+            if shipping_address:
+                serializer = AddressSerializer(data=shipping_address)
+                serializer.is_valid(raise_exception=True)
+                order.address = serializer.save()
+            else:
+                order.address = customer.address
+
+            order.save()
+
             match action:
                 # Handle checkout action
                 case "checkout":
-                    if shipping_address:
-                        serializer = AddressSerializer(data=shipping_address)
-                        serializer.is_valid(raise_exception=True)
-                        order.address = serializer.save()
-                        order.save()
-                    else:
-                        order.address = customer.address
-                        order.save()
-
-                    # Create order times from the cart
-                    OrderItem.create_from_cart(order, user_cart)
-                    user_cart.clear()
-
-                    # Redirect customer to the checkout page for payment
-                    return redirect(reverse.reverse("payment", [order.id]))
+                    return self._process_checkout(order, user_cart)
 
                 # Handle save_order action
                 case "save_order":
-                    OrderItem.create_from_cart(order, user_cart)
-                    user_cart.clear()
-                    return Response(
-                        {"success": "Your Order has been saved"},
-                        status=status.HTTP_201_CREATED,
-                    )
+                    return self._process_save_order(order, user_cart)
+
+                case _:
+                    return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _process_checkout(self, order, user_cart):
+        """
+        Handle the checkout process.
+        """
+        OrderItem.create_from_cart(order, user_cart)
+        user_cart.clear()
+        return redirect(reverse.reverse("payment", args=[order.id]))
+
+    def _process_save_order(self, order, user_cart):
+        """
+        Handle saving the order without proceeding to payment.
+        """
+        OrderItem.create_from_cart(order, user_cart)
+        user_cart.clear()
+        return Response(
+            {"success": "Your Order has been saved"},
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class OrderInstanceView(GenericAPIView):
@@ -140,16 +151,13 @@ class OrderInstanceView(GenericAPIView):
     def get_queryset(self):
         return Order.objects.filter(customer=self.request.user)
 
-    def get_object(self, id):
-        return get_object_or_404(self.get_queryset(), id=id)
-
     @swagger_auto_schema(
         operation_summary="Get an order",
         responses={200: OrderItemSerializer(), 404: "Not Found"},
         tags=["Order"],
     )
     def get(self, request, pk):
-        order = self.get_object(pk)
+        order = self.get_object()
         serializer = self.get_serializer(order)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -176,15 +184,15 @@ class OrderInstanceView(GenericAPIView):
         tags=["Order"],
     )
     def put(self, request, pk):
-        order = self.get_object(pk)
+        order = self.get_object()
 
         # Only pending orders can be modified
-        if order.status != "awaiting_payment":
+        if order.status != Order.OrderStatus.AWAITING_PAYMENT:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         # Apply discount if a discount code is provided
         if voucher_code := request.data.get("discount_code"):
-            order.redeem_voucher_offer(voucher_code)
+            order.apply_offer(voucher_code)
 
         address = request.data.get("address")
         data = {"address": address}
@@ -196,7 +204,7 @@ class OrderInstanceView(GenericAPIView):
 
     @swagger_auto_schema(operation_summary="Delete an order", tags=["Order"])
     def delete(self, request, pk):
-        order = self.get_object(pk)
+        order = self.get_object()
         order.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -229,7 +237,7 @@ class OrderItemView(GenericAPIView):
 
         """
         order = get_object_or_404(Order.objects.filter(customer=customer), id=order_id)
-        if order.status != "awaiting_payment":
+        if order.status != Order.OrderStatus.AWAITING_PAYMENT:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
     @swagger_auto_schema(
@@ -258,6 +266,7 @@ class OrderItemView(GenericAPIView):
     def put(self, request, order_id, item_id):
         self.check_order_editable(request.user, order_id)
         order_item = self.get_order_item(order_id, item_id)
+
         # Only the quantity of the item can be updated
         data = {"quantity": request.data.get("quantity")}
         serializer = self.get_serializer(instance=order_item, data=data)

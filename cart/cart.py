@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from discount.models import OfferCondition
+
 
 class Cart:
     """
@@ -14,7 +16,7 @@ class Cart:
     def __init__(self, request):
         self.customer = request.user
         self.session = request.session
-        self.session.set_expiry(1800)
+        # self.session.set_expiry(1800)
         cart = self.session.get("cart")
         if not cart:
             cart = self.session["cart"] = {}
@@ -27,20 +29,22 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add(self, product_variant, quantity, offer=None):
-        product_id = product_variant.product.id
-        variant_id = product_variant.id
-        price = product_variant.final_price
-        shipping = product_variant.product.shipping_fee or 0
-        item_type = "variant" if not product_variant.is_standalone else "standalone"
-        attributes = product_variant.variant_attributes
-        discount = self._apply_offer(product_variant.product, offer) if offer else None
+    def add(self, variant, quantity, offer=None):
+        product_id = variant.product.id
+        variant_id = variant.id
+        price = variant.final_price
+        shipping = variant.product.shipping_fee or 0
+        item_type = "variant" if not variant.product.is_standalone else "standalone"
+        attributes = (
+            variant.variant_attributes if not variant.product.is_standalone else "default"
+        )
+        discount = self._apply_offer(variant.product, offer) if offer else None
 
         item_key = f"vart_{product_id}_{variant_id}"
         item = self.cart.get(
             item_key,
             {
-                "product": product_variant.name,
+                "product": variant.product.name,
                 # "product_id": product_id,
                 "variant_id": variant_id,
                 "price": float(price),
@@ -75,6 +79,61 @@ class Cart:
         del self.session["cart"]
         self.save()
 
+    def get_active_offers(product, customer=None):
+        """
+        Get all active offers applicable to this product, either directly or through its category.
+        Groups offers by type (product-specific, category-wide) and excludes expired offers.
+
+        Args:
+            customer: Optional customer object to check customer-specific eligibility
+
+        Returns:
+            dict: Dictionary containing categorized offers and their details
+        """
+        # Get product-level offers
+
+        product_conditions = OfferCondition.objects.filter(
+            condition_type="specific_products",
+            eligible_products=product,
+            offer__is_active=True,
+            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
+        ).select_related("offer")
+
+        # Get category-level offers
+        category_conditions = OfferCondition.objects.filter(
+            condition_type="specific_categories",
+            eligible_categories=product.category,
+            offer__is_active=True,
+            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
+        ).select_related("offer")
+
+        # Collect all unique offers
+        product_offers = {cond.offer for cond in product_conditions}
+        category_offers = {cond.offer for cond in category_conditions}
+
+        # If customer is provided, filter out offers they're not eligible for
+        if customer:
+            product_offers = {
+                offer
+                for offer in product_offers
+                if offer.satisfies_conditions(product=product, customer=customer)[0]
+            }
+            category_offers = {
+                offer
+                for offer in category_offers
+                if offer.satisfies_conditions(product=product, customer=customer)[0]
+            }
+
+        return {
+            "product_offers": sorted(
+                product_offers, key=lambda x: x.discount_value, reverse=True
+            ),
+            "category_offers": sorted(
+                category_offers, key=lambda x: x.discount_value, reverse=True
+            ),
+            "total_offers": len(product_offers) + len(category_offers),
+        }
+
     def find_best_offer(self, product):
         """
         Finds the best applicable offer for this cart item.
@@ -82,10 +141,12 @@ class Cart:
         """
 
         # Get all active offers for the product
-        active_offers = product.get_active_offers(customer=self.customer)
+        active_offers = self.get_active_offers(product, customer=self.customer)
 
         # Combine all applicable offers
-        all_offers = list(active_offers["product_offers"]) + list(active_offers["category_offers"])
+        all_offers = list(active_offers["product_offers"]) + list(
+            active_offers["category_offers"]
+        )
 
         # Filter out offers that require vouchers
         available_offers = [offer for offer in all_offers if not offer.requires_voucher]
@@ -99,7 +160,9 @@ class Cart:
 
         for offer in available_offers:
             # Make sure the offer is valid for this specific purchase
-            is_valid, _ = offer.satisfies_conditions(product=self.product, customer=self.customer)
+            is_valid, _ = offer.satisfies_conditions(
+                product=self.product, customer=self.customer
+            )
 
             if is_valid:
                 discounted_price = offer.apply_discount(original_price)

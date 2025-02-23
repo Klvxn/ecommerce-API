@@ -130,7 +130,7 @@ class ProductInstanceView(GenericAPIView):
     )
     def get(self, request, pk):
         product = self.get_object()
-        serializer = self.get_serializer(product)
+        serializer = self.get_serializer(product, context={"product": product, "request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

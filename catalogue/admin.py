@@ -6,6 +6,7 @@ from django.utils.translation import ngettext
 from .models import (
     Category,
     Product,
+    Attribute,
     ProductAttribute,
     ProductMedia,
     ProductVariant,
@@ -45,7 +46,6 @@ class SharedPermMixin(BaseModelAdmin):
 class VariantAttributeInline(admin.TabularInline, SharedPermMixin):
     model = VariantAttribute
     form = VariantAttributeInlineForm
-    min_num = 1
     extra = 1
     fk_name = "variant"
 
@@ -79,27 +79,26 @@ class ProductVariantAdmin(SharedPermMixin, admin.ModelAdmin):
         return form
 
 
-# @admin.register(ProductAttribute)
-# class ProductAttributeAdmin(SharedPermMixin, admin.ModelAdmin):
-#     list_display = ["name", "product"]
-#     inlines = [VariantAttributeInline]
-#     form = AttributeModelForm
-#
-#     def get_queryset(self, request):
-#         qs = super().get_queryset(request)
-#         return qs if request.user.is_superuser else qs.filter(product__store__owner=request.user)
-#
-#     def get_form(self, request, obj=None, change=False, **kwargs):
-#         form = super().get_form(request, obj, change, **kwargs)
-#         form.set_current_user(request.user)
-#         return form
+@admin.register(ProductAttribute)
+class ProductAttributeAdmin(SharedPermMixin, admin.ModelAdmin):
+    list_display = ["name", "product"]
+    # inlines = [VariantAttributeInline]
+    form = AttributeModelForm
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs if request.user.is_superuser else qs.filter(product__store__owner=request.user)
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        form.set_current_user(request.user)
+        return form
 
 
-class ProductAttributeInline(admin.TabularInline):
-    model = ProductAttribute
+class AttributeInline(admin.TabularInline):
+    model = Attribute
     min_num = 1
     extra = 1
-    fk_name = "product"
 
 
 class ProductMediaInline(admin.StackedInline):
@@ -108,12 +107,6 @@ class ProductMediaInline(admin.StackedInline):
     exclude = ["id"]
     extra = 0
     min_num = 1
-
-
-class ProductVariantInline(admin.StackedInline):
-    model = ProductVariant
-    fk_name = "product"
-    extra = 0
 
 
 class ReviewImageInline(admin.StackedInline):
@@ -141,7 +134,7 @@ class ReviewAdmin(admin.ModelAdmin):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     actions = ["make_unavailable"]
-    inlines = [ProductMediaInline, ProductAttributeInline, ProductVariantInline]
+    inlines = [ProductMediaInline]
     list_display = ["name", "category", "total_stock_level", "store", "is_available"]
     readonly_fields = ["rating", "total_sold"]
     list_editable = ["category", "is_available", "total_stock_level"]
@@ -167,3 +160,6 @@ class ProductAdmin(admin.ModelAdmin):
             ),
             messages.SUCCESS,
         )
+
+
+admin.site.register(Attribute)

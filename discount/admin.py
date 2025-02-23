@@ -8,7 +8,8 @@ from .models import Offer, OfferCondition, RedeemedVoucher, Voucher
 class OfferConditionInline(admin.StackedInline):
     model = OfferCondition
     fk_name = "offer"
-    extra = 0
+    extra = 1
+    filter_horizontal = ("eligible_products", "eligible_categories")
 
 
 @admin.register(Offer)

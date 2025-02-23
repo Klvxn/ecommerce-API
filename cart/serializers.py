@@ -5,10 +5,10 @@ from catalogue.models import Product, ProductVariant
 
 
 class AddToCartSerializer(serializers.Serializer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if "product_id" in self.context:
-            self.product_id = self.context["product_id"]
+    # def __init__(self, *args, **kwargs):
+    #     super().__init__(*args, **kwargs)
+    #     if "product_id" in self.context:
+    #         self.product_id = self.context["product_id"]
 
     quantity = serializers.IntegerField(min_value=1)
     variant_sku = serializers.CharField(max_length=20)
@@ -19,26 +19,15 @@ class AddToCartSerializer(serializers.Serializer):
             raise serializers.ValidationError("Variant SKU cannot be null")
         else:
             try:
-                get_object_or_404(ProductVariant, sku=data, product=self.product_id)
+                get_object_or_404(ProductVariant, sku=data)
                 return data
             except:
                 raise serializers.ValidationError("Invalid variant_sku")
 
-    def validate_product(self, product):
-        if not product.is_standalone:
-            raise serializers.ValidationError(
-                "Parent product cannot be added to cart. Choose product variant"
-            )
-        return product
-
     def validate(self, attrs):
         quantity = attrs["quantity"]
-        product = attrs["product"]
-        if quantity > product.total_stock_level:
-            raise serializers.ValidationError("Selected quantity cannot be more than product's stock")
-
-        variant_sku = attrs.get("variant_sku")
-        product_variant = ProductVariant.objects.filter(sku=variant_sku, product=product).first()
-        if product_variant and quantity > product_variant.stock_level:
+        sku = attrs["variant_sku"]
+        variant = get_object_or_404(ProductVariant, sku=sku)
+        if quantity > variant.stock_level:
             raise serializers.ValidationError("Selected quantity cannot be more than product's stock")
         return super().validate(attrs)

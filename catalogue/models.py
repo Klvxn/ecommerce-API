@@ -1,6 +1,5 @@
 import magic
 import os
-from datetime import datetime, timezone
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -24,12 +23,7 @@ class Timestamp(models.Model):
 
 
 class Category(models.Model):
-    """
-    Model representing a category for products.
-    """
-
     name = models.CharField(max_length=50, db_index=True)
-    subcategory = models.ForeignKey("self", on_delete=models.CASCADE, related_name="sub_categories")
     slug = models.SlugField()
 
     class Meta:
@@ -47,10 +41,6 @@ class Category(models.Model):
 
 
 class Product(Timestamp):
-    """
-    Model representing a product.
-    """
-
     name = models.CharField(max_length=255, unique=True, db_index=True)
     category = models.ForeignKey(Category, on_delete=models.DO_NOTHING)
     description = models.TextField()
@@ -118,68 +108,20 @@ class Product(Timestamp):
         rating_sum, reviews_count = results.values()
         return rating_sum / reviews_count if reviews_count else None
 
-    def get_active_offers(self, customer=None):
-        """
-        Get all active offers applicable to this product, either directly or through its category.
-        Groups offers by type (product-specific, category-wide) and excludes expired offers.
 
-        Args:
-            customer: Optional customer object to check customer-specific eligibility
+# Common attributes like colour, size, serve as Global attributes
+# as they are reusable across products
+class Attribute(models.Model):
+    name = models.CharField(max_length=255, unique=True)
 
-        Returns:
-            dict: Dictionary containing categorized offers and their details
-        """
-        now = datetime.now(timezone.utc)
-
-        # Get product-level offers
-        from discount.models import OfferCondition
-
-        product_conditions = OfferCondition.objects.filter(
-            condition_type="specific_products",
-            eligible_products=self,
-            offer__is_active=True,
-            offer__valid_from__lte=now,
-            offer__valid_to__gte=now,
-            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
-        ).select_related("offer")
-
-        # Get category-level offers
-        category_conditions = OfferCondition.objects.filter(
-            condition_type="specific_categories",
-            eligible_categories=self.category,
-            offer__is_active=True,
-            offer__valid_from__lte=now,
-            offer__valid_to__gte=now,
-            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
-        ).select_related("offer")
-
-        # Collect all unique offers
-        product_offers = {cond.offer for cond in product_conditions}
-        category_offers = {cond.offer for cond in category_conditions}
-
-        # If customer is provided, filter out offers they're not eligible for
-        if customer:
-            product_offers = {
-                offer
-                for offer in product_offers
-                if offer.satisfies_conditions(product=self, customer=customer)[0]
-            }
-            category_offers = {
-                offer
-                for offer in category_offers
-                if offer.satisfies_conditions(product=self, customer=customer)[0]
-            }
-
-        return {
-            "product_offers": sorted(product_offers, key=lambda x: x.discount_value, reverse=True),
-            "category_offers": sorted(category_offers, key=lambda x: x.discount_value, reverse=True),
-            "total_offers": len(product_offers) + len(category_offers),
-        }
+    def __str__(self):
+        return self.name
 
 
 class ProductAttribute(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="attributes")
-    name = models.CharField(max_length=255)
+    attribute = models.ForeignKey(Attribute, on_delete=models.SET_NULL, null=True, blank=True)
+    name = models.CharField(max_length=255, null=True, blank=True)  # for product-specific attributes
 
     def __str__(self):
         return self.name
@@ -188,13 +130,11 @@ class ProductAttribute(models.Model):
         verbose_name = "product attribute"
         unique_together = ("product", "name")
 
-    def attribute_values(self):
-        return list(self.values.values_list("value", flat=True))
-
 
 class ProductVariant(Timestamp):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
-    sku = models.CharField(max_length=20, unique=True, db_index=True)
+    sku = models.CharField("SKU", max_length=20, unique=True, db_index=True)
+    is_default = models.BooleanField(default=False)
     price_adjustment = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -211,7 +151,7 @@ class ProductVariant(Timestamp):
         indexes = [models.Index(fields=("product", "is_active"))]
 
     def __str__(self):
-        attriutes = self.variant_attributes.all()
+        attriutes = self.attributes.all()
         variant_desc = " - ".join(f"{attr.attribute.name}: {attr.value}" for attr in attriutes)
         return f"{self.product.name} ({variant_desc})"
 
@@ -220,8 +160,10 @@ class ProductVariant(Timestamp):
         return self.product.base_price + self.price_adjustment
 
     def clean(self):
-        if self.product.is_standalone:
-            raise ValidationError("Cannot add variants to standalone products")
+        super().clean()
+        if hasattr(self, "product") and self.product is not None:
+            if self.product.is_standalone and not self.is_default:
+                raise ValidationError("Standalone products can only have a single default variant")
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -229,20 +171,12 @@ class ProductVariant(Timestamp):
 
 
 class VariantAttribute(models.Model):
-    variant = models.ForeignKey(
-        ProductVariant, on_delete=models.CASCADE, related_name="variant_attributes"
-    )
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name="attributes")
     attribute = models.ForeignKey(ProductAttribute, on_delete=models.CASCADE)
     value = models.CharField(max_length=255)
-    is_default = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"Variant_attribute for {self.variant}"
-
-    def save(self, *args, **kwargs):
-        # self.full_clean()
-        self.is_default = self.value is None
-        super().save(*args, **kwargs)
+        return f"Variant attribute for {self.variant}"
 
     class Meta:
         unique_together = ("variant", "attribute")
@@ -329,8 +263,6 @@ class ProductMedia(Timestamp):
 
 
 class Review(Timestamp):
-    "Model representing a review for a product."
-
     class Ratings(models.IntegerChoices):
         VERY_BAD = 1, "Very Bad"
         UNSATISFIED = 2, "Unsatisfied"
@@ -338,7 +270,6 @@ class Review(Timestamp):
         SATISFIED = 4, "Satisfied"
         VERY_SATISFIED = 5, "Very Satisfied"
 
-    # TODO: Sentiment analysis with BERT for reviews
     SENTIMENT_TYPES = (
         ("POSITIVE", "Positive sentiment"),
         ("Neutral", "Neutral sentiment"),

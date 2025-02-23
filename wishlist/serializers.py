@@ -32,8 +32,8 @@ class WishlistSerializer(serializers.ModelSerializer):
             "absolute_url",
             "public_url",
             "sharing_url",
-            "created_at",
-            "updated_at",
+            "created",
+            "updated",
         ]
 
     def get_absolute_url(self, obj):

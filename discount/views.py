@@ -1,11 +1,12 @@
-from rest_framework.generics import RetrieveAPIView
+from rest_framework.generics import GenericAPIView, ListAPIView, RetrieveAPIView
 from rest_framework.mixins import CreateModelMixin
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
 from cart.cart import Cart
-from .models import Voucher
-from .serializers import VoucherSerializer
+from .models import Offer, Voucher
+from .serializers import OfferSerializer, VoucherSerializer
 
 
 # Create your views here.
@@ -33,3 +34,9 @@ class VoucherView(CreateModelMixin, RetrieveAPIView):
 
         # cart['total'] = new_total
         return Response(new_total)
+
+
+class OfferView(ListAPIView):
+    queryset = Offer.objects.all()
+    serializer_class = OfferSerializer
+    permission_classes = [AllowAny]
