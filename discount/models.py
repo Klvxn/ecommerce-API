@@ -13,7 +13,10 @@ class ActiveOfferManager(models.Manager):
         return (
             super()
             .get_queryset()
-            .filter(valid_from__lte=datetime.now(timezone.utc), valid_to__gt=datetime.now(timezone.utc))
+            .filter(
+                valid_from__lte=datetime.now(timezone.utc),
+                valid_to__gt=datetime.now(timezone.utc),
+            )
         )
 
 
@@ -53,7 +56,10 @@ class Offer(TimeBased):
     TARGET = (
         # If the offer is being applied to a product or customer's order
         ("Product", "The offer is applicable to specific products"),  # Product-level offer
-        ("Order", "Applicable to the customer's whole order e.g. Offers with MOV"),  # Order-level offer
+        (
+            "Order",
+            "Applicable to the customer's whole order e.g. Offers with MOV",
+        ),  # Order-level offer
     )
 
     title = models.CharField(max_length=50)
@@ -140,7 +146,7 @@ class Offer(TimeBased):
         self.total_discount_offered += new_amount
         self.save()
 
-    def satisfies_conditions(self, order=None, product=None, customer=None, voucher=None):
+    def satisfies_conditions(self, customer=None, product=None, order=None, voucher=None):
         """
         Comprehensive method to check if all conditions for an offer are satisfied,
         including voucher validation when required.
@@ -184,12 +190,12 @@ class Offer(TimeBased):
 
             # Check voucher usage limits
             if not voucher.within_usage_limits(customer):
-                if voucher.usage_type == voucher.SINGLE:
-                    return False, "This voucher has already been used"
-                elif voucher.usage_type == voucher.ONCE_PER_CUSTOMER:
-                    return False, "You have already used this voucher"
-                else:
-                    return False, "Voucher has reached its maximum usage limit"
+                # if voucher.usage_type == voucher.SINGLE:
+                #     return False, "This voucher has already been used"
+                # elif voucher.usage_type == voucher.ONCE_PER_CUSTOMER:
+                #     return False, "You have already used this voucher"
+                # else:
+                return False, "Voucher has reached its maximum usage limit"
 
             # Check voucher validity period
             if not voucher.within_validity_period():
@@ -199,7 +205,10 @@ class Offer(TimeBased):
             if self.for_order:
                 order_value = order.subtotal()
                 if not voucher.offer.above_min_purchase(order_value):
-                    return False, "Order value is below the minimum purchase requirement for this voucher"
+                    return (
+                        False,
+                        "Order value is below the minimum purchase requirement for this voucher",
+                    )
 
         # Check if the offer is currently active and within its valid time period
         if not self.is_active:
@@ -234,12 +243,12 @@ class Offer(TimeBased):
             # Check product-specific conditions for product-level offers
             elif self.for_product:
                 if condition.condition_type == "specific_products":
-                    if not condition.eligible_products.filter(id=product.id, is_active=True).exists():
+                    if not condition.eligible_products.filter(id=product.id).exists():
                         return False, "Product is not eligible for this offer"
 
                 elif condition.condition_type == "specific_categories":
                     if not condition.eligible_categories.filter(
-                        id=product.category.id, is_active=True
+                        id=product.category.id
                     ).exists():
                         return False, "Product category is not eligible for this offer"
 
@@ -247,7 +256,10 @@ class Offer(TimeBased):
             elif self.for_order:
                 if condition.condition_type == "min_order_value":
                     if order.subtotal() < condition.min_order_value:
-                        return False, f"Order value must be at least {condition.min_order_value}"
+                        return (
+                            False,
+                            f"Order value must be at least {condition.min_order_value}",
+                        )
 
         # If we've made it here, all conditions are satisfied
         return True, "All conditions satisfied"
@@ -280,8 +292,12 @@ class Offer(TimeBased):
         if not self.valid_for_customer(customer):
             return False
 
-        condition_for_product = self.conditions.filter(condition_type="specific_products").first()
-        condition_for_category = self.conditions.filter(condition_type="specific_categories").first()
+        condition_for_product = self.conditions.filter(
+            condition_type="specific_products"
+        ).first()
+        condition_for_category = self.conditions.filter(
+            condition_type="specific_categories"
+        ).first()
 
         # If no product or category conditions exist, the offer is valid for all products
         if not condition_for_product and not condition_for_category:
@@ -295,7 +311,9 @@ class Offer(TimeBased):
         # Check category eligibility if a category condition exists
         category_eligible = False
         if condition_for_category:
-            category_eligible = product.category in condition_for_category.eligible_categories.all()
+            category_eligible = (
+                product.category in condition_for_category.eligible_categories.all()
+            )
 
         return product_eligible or category_eligible
 
@@ -325,7 +343,8 @@ class Offer(TimeBased):
         if condition not in self.conditions.all():
             raise ValueError("Condition does not belong to this offer")
         mappings = [
-            ProductOffer(product=product, offer=self, condition_set=condition) for product in products
+            ProductOffer(product=product, offer=self, condition_set=condition)
+            for product in products
         ]
         ProductOffer.objects.bulk_create(mappings, ignore_conflicts=True)
 
@@ -364,7 +383,10 @@ class OfferCondition(Timestamp):
         ("customer_groups", "Customer Groups"),
         ("min_order_value", "Minimum Order Value"),
     ]
-    CUSTOMER_GROUPS = [("first_time_buyers", "First Time Buyers"), ("all_customers", "All Customers")]
+    CUSTOMER_GROUPS = [
+        ("first_time_buyers", "First Time Buyers"),
+        ("all_customers", "All Customers"),
+    ]
 
     condition_type = models.CharField(max_length=20, choices=CONDITIONS)
     offer = models.ForeignKey(Offer, on_delete=models.CASCADE, related_name="conditions")
@@ -375,7 +397,9 @@ class OfferCondition(Timestamp):
         blank=True,
         help_text="Specify the minimum order amount required for offers to be applicable",
     )
-    eligible_customers = models.CharField(max_length=20, choices=CUSTOMER_GROUPS, null=True, blank=True)
+    eligible_customers = models.CharField(
+        max_length=20, choices=CUSTOMER_GROUPS, null=True, blank=True
+    )
     eligible_products = models.ManyToManyField(
         "catalogue.Product",
         blank=True,
@@ -454,7 +478,9 @@ class Voucher(TimeBased):
     description = models.TextField()
     code = models.CharField(max_length=50, unique=True, db_index=True)
     offer = models.ForeignKey(Offer, on_delete=models.CASCADE)
-    usage_type = models.CharField(max_length=50, choices=VOUCHER_USAGE, default=ONCE_PER_CUSTOMER)
+    usage_type = models.CharField(
+        max_length=50, choices=VOUCHER_USAGE, default=ONCE_PER_CUSTOMER
+    )
     max_usage_limit = models.PositiveIntegerField()
     num_of_usage = models.PositiveIntegerField(default=0, blank=True)
 
@@ -492,7 +518,8 @@ class Voucher(TimeBased):
 
     def within_validity_period(self):
         return (
-            not self.offer.has_expired and self.valid_from < datetime.now(timezone.utc) <= self.valid_to
+            not self.offer.has_expired
+            and self.valid_from < datetime.now(timezone.utc) <= self.valid_to
         )
 
     def is_valid(self, customer=None, order_value=None):

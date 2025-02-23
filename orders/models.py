@@ -4,6 +4,7 @@ from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
 from django.db.models import Case, F, When
+from django.db.utils import ConnectionRouter
 
 from catalogue.models import Product, ProductVariant, Timestamp
 from customers.models import Address
@@ -15,10 +16,6 @@ User = get_user_model()
 
 
 class Order(Timestamp):
-    """
-    Represents a customer's order, containing order items, associated customer, and status.
-    """
-
     class OrderStatus(models.TextChoices):
         PAID = "paid"
         AWAITING_PAYMENT = "awaiting_payment"
@@ -127,7 +124,11 @@ class Order(Timestamp):
         # If voucher code is provided, try to get the associated offer
         if voucher_code:
             try:
-                voucher = Voucher.objects.filter(code=voucher_code.upper()).select_related("offer").get()
+                voucher = (
+                    Voucher.objects.filter(code=voucher_code.upper())
+                    .select_related("offer")
+                    .get()
+                )
 
                 if not voucher.is_valid():
                     return None
@@ -158,22 +159,11 @@ class Order(Timestamp):
 
         elif offer_to_apply.for_product:
             # For product-level offers, we need to check eligibility per product
-            eligible_product_ids = []
-
-            # Get eligible products if there are conditions
-            try:
-                condition = offer_to_apply.conditions.filter(condition_type="specific_products").first()
-                if condition:
-                    eligible_product_ids = list(condition.eligible_products.values_list("id", flat=True))
-            except AttributeError:
-                # If there's no condition, assume all products are eligible
-                pass
-
             for item in items:
                 # Check if this product is eligible (if we have restrictions)
-                if eligible_product_ids and item.product.id not in eligible_product_ids:
+                if not offer_to_apply.valid_for_product(item.product):
                     continue
-
+                          
                 # Apply the discount to the item's price
                 item.discounted_price = offer_to_apply.apply_discount(item.unit_price)
                 item.applied_offer = offer_to_apply
@@ -181,21 +171,16 @@ class Order(Timestamp):
 
         elif offer_to_apply.for_order:
             # For order-level offers, check if the order meets conditions
+    
             try:
-                conditions = offer_to_apply.conditions.filter(
-                    condition_type__in=["min_order_value", "customer_groups"]
-                )
-                for condition in conditions:
-                    # Check minimum order value if specified
-                    if condition.min_order_value is not None:
-                        if self.subtotal() < condition.min_order_value:
-                            return None
+                # Check minimum order value if specified
+                if not offer_to_apply.valid_for_order(self):
+                    return None
 
-                    # Check customer eligibility if specified
-                    if condition.eligible_customers == "first_time_buyers" and not getattr(
-                        self.customer, "is_first_time_buyer", False
-                    ):
-                        return None
+                # Check customer eligibility if specified
+                if not offer_to_apply.valid_for_customer(self.customer):
+                    return None
+
             except AttributeError:
                 # If we can't check conditions, proceed anyway
                 pass
@@ -208,6 +193,7 @@ class Order(Timestamp):
 
         # Only update if we have items to update
         if items_to_update:
+
             # Bulk update order items with the applied discounts
             OrderItem.objects.bulk_update(
                 items_to_update, ["discounted_price", "discounted_shipping", "applied_offer"]
@@ -220,10 +206,6 @@ class Order(Timestamp):
 
 
 class OrderItem(Timestamp):
-    """
-    Represents an individual item within an order.
-    """
-
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
     variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -247,7 +229,11 @@ class OrderItem(Timestamp):
 
     @property
     def savings(self):
-        return (self.unit_price - self.discounted_price) * self.quantity if self.discounted_price else 0
+        return (
+            (self.unit_price - self.discounted_price) * self.quantity
+            if self.discounted_price
+            else 0
+        )
 
     def get_shipping(self):
         """
@@ -260,7 +246,7 @@ class OrderItem(Timestamp):
         return self.discounted_shipping if self.discounted_shipping else self.shipping_fee
 
     @classmethod
-    def create_from_cart(cls, order, user_cart):
+    def create_from_cart(cls, order, user):
         """
         Creates OrderItems from the items in the user's cart.
 
@@ -272,7 +258,7 @@ class OrderItem(Timestamp):
             int: The number of records that was created
         """
         order_items = []
-        for item_data in user_cart:
+        for item_data in user:
             discounted_price = item_data.get("discount", {}).get("discounted_price")
             discounted_shipping = item_data.get("discount", {}).get("discounted_shipping")
             offer_id = item_data.get("discount", {}).get("offer_id")

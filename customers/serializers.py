@@ -6,7 +6,6 @@ from .models import Address, Customer
 
 
 class AddressSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = Address
         exclude = ["id"]
@@ -18,10 +17,9 @@ class AddressSerializer(serializers.ModelSerializer):
 
 
 class CustomerSerializer(serializers.ModelSerializer):
-
     address = AddressSerializer(read_only=True)
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    password2 = serializers.CharField(write_only=True, validators=[validate_password]    )
+    password2 = serializers.CharField(write_only=True, validators=[validate_password])
 
     class Meta:
         model = Customer
@@ -32,12 +30,11 @@ class CustomerSerializer(serializers.ModelSerializer):
             "slug",
             "date_of_birth",
             "address",
+            "last_purchase_date",
             "password",
             "password2",
         ]
-        extra_kwargs = {
-            "first_name": {"required": True}, "last_name": {"required": True}
-        }
+        extra_kwargs = {"first_name": {"required": True}, "last_name": {"required": True}}
 
     def validate(self, attrs):
         pwd = attrs["password"]
@@ -60,7 +57,6 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 
 class CustomerUpdateSerializer(WritableNestedModelSerializer):
-
     address = AddressSerializer(required=False)
 
     class Meta:
@@ -76,7 +72,6 @@ class CustomerUpdateSerializer(WritableNestedModelSerializer):
 
 
 class SimpleCustomerSerializer(serializers.ModelSerializer):
-
     class Meta:
         model = Customer
         fields = ["email", "first_name", "last_name"]

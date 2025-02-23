@@ -6,25 +6,21 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import status
-
 from rest_framework.generics import GenericAPIView, get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from catalogue.models import Product, ProductVariant
-from discount.models import CategoryOffer, ProductOffer
 
 from .cart import Cart
 from .serializers import AddToCartSerializer
 
 
 # Create your views here.
-
-
 class CartView(GenericAPIView):
     """
-    View for adding a product to a customer's cart.
+    View for adding/viewing a customer's cart.
     """
 
     queryset = Product.objects.all()
@@ -33,15 +29,15 @@ class CartView(GenericAPIView):
     serializer_class = AddToCartSerializer
 
     def get(self, request):
-        user_cart = Cart(request)
-        if user_cart.cart:
+        cart = Cart(request)
+        if cart.cart:
             return Response(
                 {
-                    "items": user_cart,
-                    "items count": len(user_cart),
-                    "subtotal": user_cart.subtotal(),
-                    "shipping": user_cart.total_shipping(),
-                    "total": user_cart.total(),
+                    "items": cart.cart,
+                    "items count": len(cart),
+                    "subtotal": cart.subtotal(),
+                    "shipping": cart.total_shipping(),
+                    "total": cart.total(),
                 },
                 status=status.HTTP_200_OK,
             )
@@ -52,34 +48,6 @@ class CartView(GenericAPIView):
     #     context = super().get_serializer_context()
     #     context["product_id"] = self.kwargs["pk"]
     #     return context
-
-    def get_applicable_offers(self, customer, product, order_value):
-        """
-        Determines the best applicable offer on a product based on the order value
-
-        Args:
-            customer (Customer): The customer making the order
-            product (Product): A product
-            order_value (Decimal): The total value of the order
-
-        Returns:
-            Offer: The best applicable offer
-        """
-
-        category_offer = CategoryOffer.objects.filter(
-            is_active=True, category=product.category
-        ).first()
-        product_offer = ProductOffer.objects.filter(is_active=True, product=product).first()
-
-        if not product_offer and not category_offer:
-            return None
-
-        product_offer_condition = product_offer.condition
-        if product_offer_condition.eligible_customers != "all_customers":
-            if customer.is_authenticated and not customer.is_first_time_buyer:
-                product_offer = None
-
-        return product_offer
 
     @extend_schema(
         summary="Add a product to cart",
@@ -111,29 +79,21 @@ class CartView(GenericAPIView):
         variant_sku = serializer.validated_data["variant_sku"]
 
         variant = get_object_or_404(ProductVariant, sku=variant_sku)
-        order_value = variant.final_price * quantity
 
-        # Get an offer that does not require a voucher code but open to customers
-        open_offer = self.get_applicable_offers(request.user, variant.product, order_value)
-
-        user_cart = Cart(request)
-        (
-            user_cart.add(variant, quantity, open_offer.offer)
-            if open_offer
-            else user_cart.add(variant, quantity)
-        )
+        cart = Cart(request)
+        cart.add(variant, quantity)
 
         return Response(
             {
                 "success": f"{quantity} of {variant} has been added to cart",
-                "cart_total": user_cart.total(),
+                "cart_total": cart.total(),
             },
             status=status.HTTP_200_OK,
         )
 
     def delete(self, request):
-        user_cart = Cart(request)
-        user_cart.clear()
+        cart = Cart(request)
+        cart.clear()
         return Response({"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT)
 
 
@@ -190,13 +150,13 @@ class CartView(GenericAPIView):
 class CartItemView(APIView):
     """
     View to handle cart-related operations:
-    Retrieving cart items, updating and removing items from the cart.
+    Updating and removing items from the cart.
     """
 
     permission_classes = [AllowAny]
 
     def put(self, request, item_key):
-        user_cart = Cart(request)
+        cart = Cart(request)
         # item_key = str(request.data.get("item_key"))
         quantity = request.data.get("quantity")
 
@@ -206,8 +166,8 @@ class CartItemView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if item_key in user_cart.cart.keys():
-            user_cart.update(item_key, quantity=quantity)
+        if item_key in cart.cart.keys():
+            cart.update(item_key, quantity=quantity)
             return Response({"success": "Cart updated"}, status=status.HTTP_200_OK)
 
         return Response(
@@ -216,11 +176,11 @@ class CartItemView(APIView):
         )
 
     def delete(self, request, item_key):
-        user_cart = Cart(request)
+        cart = Cart(request)
         # item_key = request.data.get("item_key")
 
-        if item_key in user_cart.cart.keys():
-            if removed := user_cart.remove(item_key):
+        if item_key in cart.cart.keys():
+            if removed := cart.remove(item_key):
                 return Response(
                     {"success": "Item has been removed from cart"},
                     status=status.HTTP_204_NO_CONTENT,

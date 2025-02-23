@@ -74,14 +74,14 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
         action = request.data.get("action")
         discount_code = request.data.get("discount_code")
         shipping_address = request.data.get("address")
-        user_cart = Cart(request)
+        cart = Cart(request)
 
         # Validate the action type
         if action not in ("checkout", "save_order"):
             return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Ensure the user's cart is not empty
-        if len(user_cart) <= 0:
+        if len(cart) <= 0:
             return Response(
                 {"error": "Can't create an order. Your cart is empty"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -115,29 +115,29 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
             match action:
                 # Handle checkout action
                 case "checkout":
-                    return self._process_checkout(order, user_cart)
+                    return self._process_checkout(order, cart)
 
                 # Handle save_order action
                 case "save_order":
-                    return self._process_save_order(order, user_cart)
+                    return self._process_save_order(order, cart)
 
                 case _:
                     return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
 
-    def _process_checkout(self, order, user_cart):
+    def _process_checkout(self, order, cart):
         """
         Handle the checkout process.
         """
-        OrderItem.create_from_cart(order, user_cart)
-        user_cart.clear()
+        OrderItem.create_from_cart(order, cart)
+        cart.clear()
         return redirect(reverse.reverse("payment", args=[order.id]))
 
-    def _process_save_order(self, order, user_cart):
+    def _process_save_order(self, order, cart):
         """
         Handle saving the order without proceeding to payment.
         """
-        OrderItem.create_from_cart(order, user_cart)
-        user_cart.clear()
+        OrderItem.create_from_cart(order, cart)
+        cart.clear()
         return Response(
             {"success": "Your Order has been saved"},
             status=status.HTTP_201_CREATED,

@@ -29,22 +29,20 @@ class Cart:
     def __len__(self):
         return sum(items["quantity"] for items in self.cart.values())
 
-    def add(self, variant, quantity, offer=None):
-        product_id = variant.product.id
+    def add(self, variant, quantity):
+        product = variant.product
         variant_id = variant.id
         price = variant.final_price
-        shipping = variant.product.shipping_fee or 0
-        item_type = "variant" if not variant.product.is_standalone else "standalone"
-        attributes = (
-            variant.variant_attributes if not variant.product.is_standalone else "default"
-        )
-        discount = self._apply_offer(variant.product, offer) if offer else None
+        shipping = product.shipping_fee or 0
+        item_type = "standalone" if product.is_standalone else "variant"
+        attributes = "default" if product.is_standalone else variant.attributes
+        _, discount = self.apply_best_offer(product, quantity)
 
-        item_key = f"vart_{product_id}_{variant_id}"
+        item_key = f"VART_{product.id}_{variant.sku}"
         item = self.cart.get(
             item_key,
             {
-                "product": variant.product.name,
+                "product": product.name,
                 # "product_id": product_id,
                 "variant_id": variant_id,
                 "price": float(price),
@@ -56,7 +54,7 @@ class Cart:
         )
         item["quantity"] = quantity
         if discount:
-            item["discount"] = discount
+            item["applied_offer"] = discount
 
         self.cart[item_key] = item
         return self.save()
@@ -79,7 +77,7 @@ class Cart:
         del self.session["cart"]
         self.save()
 
-    def get_active_offers(product, customer=None):
+    def _get_active_offers(self, product, customer=None):
         """
         Get all active offers applicable to this product, either directly or through its category.
         Groups offers by type (product-specific, category-wide) and excludes expired offers.
@@ -134,14 +132,14 @@ class Cart:
             "total_offers": len(product_offers) + len(category_offers),
         }
 
-    def find_best_offer(self, product):
+    def _find_best_offer(self, product):
         """
         Finds the best applicable offer for this cart item.
         Returns the offer that gives the highest discount.
         """
 
         # Get all active offers for the product
-        active_offers = self.get_active_offers(product, customer=self.customer)
+        active_offers = self._get_active_offers(product, customer=self.customer)
 
         # Combine all applicable offers
         all_offers = list(active_offers["product_offers"]) + list(
@@ -156,13 +154,11 @@ class Cart:
 
         # Calculate the actual discount amount for each offer
         offer_discounts = []
-        original_price = self.product.price * self.quantity
+        original_price = product.base_price
 
         for offer in available_offers:
             # Make sure the offer is valid for this specific purchase
-            is_valid, _ = offer.satisfies_conditions(
-                product=self.product, customer=self.customer
-            )
+            is_valid, _ = offer.satisfies_conditions(product=product, customer=self.customer)
 
             if is_valid:
                 discounted_price = offer.apply_discount(original_price)
@@ -176,15 +172,17 @@ class Cart:
 
         return None
 
-    def apply_best_offer(self, product):
+    def apply_best_offer(self, product, quantity):
         """
         Finds and applies the best available offer to this cart item.
         Updates the cart item with the applied offer and new price.
         """
         discount = {}
-        best_offer = self.find_best_offer()
+        best_offer = self._find_best_offer(product)
 
         if best_offer:
+            discount["offer_id"] = best_offer.id
+
             if best_offer.is_free_shipping and product.shipping_fee:
                 discount["discounted_shipping"] = float(0.0)
             else:
@@ -193,99 +191,37 @@ class Cart:
                 discount["discounted_price"] = float(discounted_price)
 
             # Update offer usage statistics if needed
-            # best_offer.update_total_discount(original_price - discounted_price)
+            saved = float(original_price - discounted_price) * quantity
+            best_offer.update_total_discount(saved)
 
-            discount["applied_offer_id"] = best_offer.id
-            return True, f"Applied offer: {best_offer.title}", discount
+            discount["discount_type"] = best_offer.discount_type
+            discount["discount_value"] = float(best_offer.discount_value)
+            discount["saved"] = saved
+            return True, discount
 
         return False, "No applicable offers found"
 
-    def _apply_offer(self, product, offer):
-        """
-        Applies discount offers to a product in the cart
-
-        Args:
-            product (Product):
-            offer (Offer):
-
-        Returns:
-            dict: A dictionary containing the applied discount and details of the offer
-        """
-        discount = {}
-
-        if not offer.is_free_shipping:
-            if offer.for_product:
-                discounted_price = self._apply_product_discount(product, offer)
-                discount["discounted_price"] = float(discounted_price)
-            # else:
-            #     discounted_total = self._apply_order_discount(offer, self.subtotal())
-            #     discount["order_discount"] = float(discounted_total)
-
-        elif offer.is_free_shipping and product.shipping_fee:
-            discount["discounted_shipping"] = float(0.0)
-
-        discount.update({"offer_id": offer.id})
-        return discount
-
     @staticmethod
-    def _apply_product_discount(product, offer):
-        """
-        Applies a discount to a specific product in the cart.
-
-        Args:
-            product (Product): The product to apply the discount to.
-            offer (Offer): The offer object to apply.
-
-        Returns:
-            Decimal: The discounted price if the discount is valid.
-        """
-        return offer.apply_discount(product.base_price)
-
-    @staticmethod
-    def _apply_order_discount(offer, order_total):
-        """
-        Applies a discount to the total cost of items (exc. shipping) in the cart.
-
-        Args:
-            offer (Offer): The offer object to apply.
-            order_total (float): The subtotal of items in the cart.
-
-        Returns:
-            Decimal: The discounted total
-        """
-        if not offer.is_free_shipping:
-            return offer.apply_discount(order_total)
-
-    @staticmethod
-    def calculate_item_cost(item):
-        """
-        Calculate the total cost of a cart item, considering any discount applied.
-
-        Args:
-            item (dict): A dictionary containing the item's price, quantity, and optional discount.
-
-        Returns:
-            Decimal: The total cost of the cart item.
-        """
+    def item_price(item):
         return (
             Decimal(item["price"]) * item["quantity"]
-            if not item.get("discount")
-            else Decimal(item["discount"].get("discounted_price")) * item["quantity"]
+            if not item.get("applied_offer")
+            else Decimal(item["applied_offer"].get("discounted_price")) * item["quantity"]
         )
 
     def total_shipping(self):
         try:
             return sum(
                 Decimal(value.get("shipping", 0))
-                if not value.get("discount").get("discounted_shipping")
-                else Decimal(value["discount"].get("discounted_shipping"))
+                if not value.get("applied_offer").get("discounted_shipping")
+                else Decimal(value["applied_offer"].get("discounted_shipping"))
                 for value in self.cart.values()
             )
         except AttributeError:
             return sum(Decimal(value.get("shipping", 0)) for value in self.cart.values())
 
     def subtotal(self):
-        return sum(self.calculate_item_cost(item) for item in self.cart.values())
+        return sum(self.item_price(item) for item in self.cart.values())
 
     def total(self):
         return self.subtotal() + self.total_shipping()
