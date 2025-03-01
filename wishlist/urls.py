@@ -4,7 +4,7 @@ from .views import WishlistInstanceView, WishlistListView
 
 
 urlpatterns = [
-    path("wishlists/", WishlistListView.as_view()),
+    path("wishlists/", WishlistListView.as_view(), name="wishlists"),
     path("wishlists/<int:pk>/", WishlistInstanceView.as_view(), name="wishlist_detail"),
     path("wishlists/shared/<str:token>/", WishlistInstanceView.as_view(), name="shared"),
     path(

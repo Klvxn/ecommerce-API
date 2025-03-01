@@ -14,7 +14,7 @@ class OrderItemInline(admin.StackedInline):
         "unit_price",
         "discounted_price",
         "quantity",
-        "shipping_fee",
+        "shipping",
         "discounted_shipping",
         "applied_offer",
         "created",

@@ -21,7 +21,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         """
         Validate that discounted prices are correctly applied according to offer rules.
         """
-        offer = attrs.get("offer")
+        offer = attrs.get("applied_offer")
         unit_price = attrs.get("unit_price")
         discounted_price = attrs.get("discounted_price")
         shipping_fee = attrs.get("shipping_fee")
@@ -67,13 +67,13 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     address = AddressSerializer()
-    customer = SimpleCustomerSerializer()
+    customer = SimpleCustomerSerializer(read_only=True)
     url = serializers.HyperlinkedIdentityField(view_name="order_detail")
     items = OrderItemSerializer(many=True, required=False)
-    total_discount = serializers.SerializerMethodField(read_only=True)
+    # total_discount = serializers.SerializerMethodField(read_only=True)
     subtotal = serializers.SerializerMethodField(read_only=True)
     shipping = serializers.SerializerMethodField(read_only=True)
-    savings = serializers.SerializerMethodField(read_only=True)
+    # savings = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
@@ -86,9 +86,10 @@ class OrderSerializer(serializers.ModelSerializer):
             "address",
             "items",
             "items_count",
-            "savings",
+            # "savings",
             "status",
             "subtotal",
+            # "total_discount",
             "shipping",
             "total_amount",
         ]
@@ -96,8 +97,8 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_subtotal(self, obj):
         return float(obj.subtotal())
 
-    def get_savings(self, obj):
-        return sum(item.savings for item in obj.items.all())
+    # def get_savings(self, obj):
+    #     return obj.total_savings
 
     def get_shipping(self, obj):
         return float(obj.total_shipping())
@@ -105,7 +106,7 @@ class OrderSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         data = validated_data.get("address")
         try:
-            address, created = Address.objects.get_or_create(**data)
+            address, _ = Address.objects.get_or_create(**data)
         except Address.MultipleObjectsReturned:
             address = Address.objects.filter(**data).first()
         instance.address = address

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from discount.models import OfferCondition
+from discount.models import Offer, OfferCondition
 from discount.serializers import OfferSerializer
 
 from .models import (
@@ -99,14 +99,13 @@ class ProductInstanceSerializer(ProductListSerializer):
         fields = "__all__"
 
     def get_product_offers(self, obj):
-        # filtered_offers = Offer.objects.filter(target="Product")
-        # return OfferSerializer(filtered_offers, many=True).data
-        conditions = OfferCondition.objects.filter(
-            condition_type="specific_products",
-            eligible_products=self.product,
-            offer__is_active=True,
+        filtered_offers = Offer.objects.filter(
+            target="Product",
+            is_active=True,
+            conditions__condition_type="specific_products",
+            conditions__eligible_products=obj,
         )
-        return OfferSerializer([cond.offer for cond in conditions], many=True).data if conditions else None
+        return OfferSerializer(filtered_offers, many=True).data
 
 
 class SimpleProductSerializer(serializers.ModelSerializer):

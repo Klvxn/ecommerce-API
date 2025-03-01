@@ -4,7 +4,6 @@ from uuid import uuid4
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
 from django.db.models import Case, F, When
-from django.db.utils import ConnectionRouter
 
 from catalogue.models import Product, ProductVariant, Timestamp
 from customers.models import Address
@@ -56,13 +55,11 @@ class Order(Timestamp):
         return self.status == self.OrderStatus.PAID
 
     @property
-    def items_count(self):
-        """
-        Get the total quantity of all items in the order.
+    def total_savings(self):
+        return sum([item.savings_on_item_price + item.savings_on_shipping for item in self.items.all()])
 
-        Returns:
-            int: Total quantity of items.
-        """
+    @property
+    def items_count(self):
         return self.items.aggregate(total_items=models.Sum("quantity"))["total_items"] or 0
 
     def save(self, *args, **kwargs):
@@ -70,12 +67,7 @@ class Order(Timestamp):
         super().save(*args, **kwargs)
 
     def subtotal(self):
-        """
-        Calculate the subtotal of the order, excluding shipping and discounts.
-
-        Returns:
-            Decimal: The total cost of the order.
-        """
+        # returns the overall order value (including applied discounts on order items)
         total_cost = self.items.aggregate(
             total=models.Sum(
                 models.F("total_price"),
@@ -84,13 +76,16 @@ class Order(Timestamp):
         )
         return total_cost["total"] or 0
 
+    def original_subtotal(self):
+        # returns the overall order value (excluding discounts on order items)
+        return self.items.aggregate(
+            total=models.Sum(
+                models.F("unit_price") * models.F("quantity"),
+                output_field=models.DecimalField(),
+            ),
+        )["total"] or 0
+        
     def total_shipping(self):
-        """
-        Calculates the total shipping fee for the order.
-
-        Returns:
-            Decimal: The total shipping fee for all items in the order.
-        """
         return (
             self.items.aggregate(
                 total_shipping=models.Sum(
@@ -186,7 +181,7 @@ class Order(Timestamp):
                 pass
 
             # Add the offer to the order itself
-            new_subtotal = offer_to_apply.apply_discount(self.subtotal())
+            new_subtotal = offer_to_apply.apply_discount(self.original_subtotal())
             self.total_amount = new_subtotal + self.total_shipping()
             self.applied_offer = offer_to_apply
             self.save()
@@ -213,7 +208,7 @@ class OrderItem(Timestamp):
     discounted_price = models.DecimalField(max_digits=10, decimal_places=2, null=True)
     quantity = models.PositiveIntegerField(default=1)
     applied_offer = models.ForeignKey(Offer, on_delete=models.SET_NULL, null=True, blank=True)
-    shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True)
+    shipping = models.DecimalField(max_digits=6, decimal_places=2, null=True)
     discounted_shipping = models.DecimalField(max_digits=10, decimal_places=2, null=True)
     total_price = models.GeneratedField(
         expression=Case(
@@ -227,52 +222,47 @@ class OrderItem(Timestamp):
     def __str__(self):
         return f"Item {self.id} in Order {self.order}"
 
-    @property
-    def savings(self):
+    def savings_on_item_price(self):
         return (
             (self.unit_price - self.discounted_price) * self.quantity
             if self.discounted_price
             else 0
         )
 
-    def get_shipping(self):
-        """
-        Checks if an order item has a discounted shipping fee. Otherwise, it returns
-        the regular shipping fee.
+    def savings_on_shipping(self):
+        return (self.shipping - self.discounted_shipping) if self.discounted_shipping else 0
 
-        Returns:
-            Decimal: The applicable shipping fee for the order item.
-        """
-        return self.discounted_shipping if self.discounted_shipping else self.shipping_fee
+    def get_shipping(self):
+        return self.discounted_shipping if self.discounted_shipping else self.shipping
 
     @classmethod
-    def create_from_cart(cls, order, user):
+    def create_from_cart(cls, order, cart):
         """
         Creates OrderItems from the items in the user's cart.
 
         Args:
             order (Order): The order to which the items should be added.
-            user_cart (Cart): The user's cart containing items to be added to the order.
+            cart (Cart): The customer's cart containing items to be added to the order.
 
         Returns:
             int: The number of records that was created
         """
         order_items = []
-        for item_data in user:
-            discounted_price = item_data.get("discount", {}).get("discounted_price")
-            discounted_shipping = item_data.get("discount", {}).get("discounted_shipping")
-            offer_id = item_data.get("discount", {}).get("offer_id")
+        for item_data in cart:
+            discounted_price = item_data.get("applied_offer", {}).get("discounted_price")
+            discounted_shipping = item_data.get("applied_offer", {}).get("discounted_shipping")
+            offer_id = item_data.get("applied_offer", {}).get("offer_id")
 
             # Create OrderItem instance
             order_items.append(
                 cls(
                     order=order,
                     variant=ProductVariant.objects.get(pk=item_data["variant_id"]),
-                    product=Product.objects.get(pk=item_data["product_id"]),
+                    product=Product.objects.get(variants__id=item_data["variant_id"]),
                     unit_price=item_data["price"],
                     discounted_price=discounted_price,
                     quantity=item_data["quantity"],
-                    shipping_fee=item_data["shipping"],
+                    shipping=item_data["shipping"],
                     discounted_shipping=discounted_shipping,
                     applied_offer_id=offer_id,
                 )

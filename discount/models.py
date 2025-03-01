@@ -16,6 +16,7 @@ class ActiveOfferManager(models.Manager):
             .filter(
                 valid_from__lte=datetime.now(timezone.utc),
                 valid_to__gt=datetime.now(timezone.utc),
+                # is_active=True,
             )
         )
 
@@ -56,10 +57,7 @@ class Offer(TimeBased):
     TARGET = (
         # If the offer is being applied to a product or customer's order
         ("Product", "The offer is applicable to specific products"),  # Product-level offer
-        (
-            "Order",
-            "Applicable to the customer's whole order e.g. Offers with MOV",
-        ),  # Order-level offer
+        ("Order", "Applicable to the customer's order "),  # Order-level offer
     )
 
     title = models.CharField(max_length=50)
@@ -119,31 +117,32 @@ class Offer(TimeBased):
     def for_order(self):
         return self.target == "Order"
 
-    def save(self, *args, **kwargs):
-        if self.for_order and self.conditions.eligible_products is not None:
-            raise ValidationError("Offers targeted to orders cannot have eligible products")
-        super().save(*args, **kwargs)
+    # def save(self, *args, **kwargs):
+    #     super().save(*args, **kwargs)
+        # if self.for_order and self.conditions.eligible_products is not None:
+        #     raise ValidationError("Offers targeted to orders cannot have eligible products")
+        # super().save(*args, **kwargs)
 
     def apply_discount(self, price):
         if self.is_free_shipping:
             return D(0.00)
         elif self.is_percentage_discount:
-            return self.calculate_percentage_discount(price)
+            return self.calc_percentage_discount(price)
         elif self.is_fixed_discount:
-            return self.calculate_fixed_discount(price)
+            return self.calc_fixed_discount(price)
         else:
             return price
 
-    def calculate_percentage_discount(self, price):
+    def calc_percentage_discount(self, price):
         amount_off = price * D(self.discount_value / 100)
         discounted_price = price - round(amount_off, 2)
         return discounted_price
 
-    def calculate_fixed_discount(self, price):
+    def calc_fixed_discount(self, price):
         return price - self.discount_value
 
     def update_total_discount(self, new_amount):
-        self.total_discount_offered += new_amount
+        self.total_discount_offered += D(new_amount)
         self.save()
 
     def satisfies_conditions(self, customer=None, product=None, order=None, voucher=None):
@@ -190,11 +189,6 @@ class Offer(TimeBased):
 
             # Check voucher usage limits
             if not voucher.within_usage_limits(customer):
-                # if voucher.usage_type == voucher.SINGLE:
-                #     return False, "This voucher has already been used"
-                # elif voucher.usage_type == voucher.ONCE_PER_CUSTOMER:
-                #     return False, "You have already used this voucher"
-                # else:
                 return False, "Voucher has reached its maximum usage limit"
 
             # Check voucher validity period
@@ -395,19 +389,13 @@ class OfferCondition(Timestamp):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Specify the minimum order amount required for offers to be applicable",
+        help_text="Specify the minimum order amount required for this offer to be applicable",
     )
     eligible_customers = models.CharField(
         max_length=20, choices=CUSTOMER_GROUPS, null=True, blank=True
     )
-    eligible_products = models.ManyToManyField(
-        "catalogue.Product",
-        blank=True,
-    )
-    eligible_categories = models.ManyToManyField(
-        "catalogue.Category",
-        blank=True,
-    )
+    eligible_products = models.ManyToManyField("catalogue.Product", blank=True)
+    eligible_categories = models.ManyToManyField("catalogue.Category", blank=True)
 
     class Meta:
         unique_together = ("condition_type", "offer")

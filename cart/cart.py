@@ -1,6 +1,7 @@
 from decimal import Decimal
 
-from discount.models import OfferCondition
+from catalogue.models import ProductVariant
+from discount.models import Offer
 
 
 class Cart:
@@ -16,7 +17,7 @@ class Cart:
     def __init__(self, request):
         self.customer = request.user
         self.session = request.session
-        # self.session.set_expiry(1800)
+        self.session.set_expiry(1800)
         cart = self.session.get("cart")
         if not cart:
             cart = self.session["cart"] = {}
@@ -36,14 +37,13 @@ class Cart:
         shipping = product.shipping_fee or 0
         item_type = "standalone" if product.is_standalone else "variant"
         attributes = "default" if product.is_standalone else variant.attributes
-        _, discount = self.apply_best_offer(product, quantity)
+        offer_applied, discount = self.apply_best_offer(variant, quantity)
 
-        item_key = f"VART_{product.id}_{variant.sku}"
+        item_key = f"prod{product.id}_{variant.sku}_dflt"
         item = self.cart.get(
             item_key,
             {
                 "product": product.name,
-                # "product_id": product_id,
                 "variant_id": variant_id,
                 "price": float(price),
                 "quantity": 0,
@@ -53,14 +53,21 @@ class Cart:
             },
         )
         item["quantity"] = quantity
-        if discount:
+        if offer_applied:
             item["applied_offer"] = discount
 
         self.cart[item_key] = item
         return self.save()
 
     def update(self, item_key, quantity):
-        self.cart[item_key]["quantity"] = quantity
+        item = self.cart[item_key]
+        item["quantity"] += quantity
+        variant = ProductVariant.objects.get(id=item["variant_id"])
+        applied, offer = self.apply_best_offer(variant, quantity)
+        if applied:
+             item["applied_offer"] = offer
+        else:
+            item.pop("applied_offer", None)
         return self.save()
 
     def remove(self, item_key):
@@ -81,33 +88,22 @@ class Cart:
         """
         Get all active offers applicable to this product, either directly or through its category.
         Groups offers by type (product-specific, category-wide) and excludes expired offers.
-
-        Args:
-            customer: Optional customer object to check customer-specific eligibility
-
-        Returns:
-            dict: Dictionary containing categorized offers and their details
         """
         # Get product-level offers
-
-        product_conditions = OfferCondition.objects.filter(
-            condition_type="specific_products",
-            eligible_products=product,
-            offer__is_active=True,
-            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
-        ).select_related("offer")
+        product_offers = Offer.objects.filter(
+            target="Product",
+            requires_voucher=False,
+            conditions__condition_type="specific_products",
+            conditions__eligible_products=product,
+        ).distinct()
 
         # Get category-level offers
-        category_conditions = OfferCondition.objects.filter(
-            condition_type="specific_categories",
-            eligible_categories=product.category,
-            offer__is_active=True,
-            offer__requires_voucher=False,  # Add this if you want to exclude voucher-required offers
-        ).select_related("offer")
-
-        # Collect all unique offers
-        product_offers = {cond.offer for cond in product_conditions}
-        category_offers = {cond.offer for cond in category_conditions}
+        category_offers = Offer.objects.filter(
+            target="Product",
+            conditions__condition_type="specific_categories",
+            conditions__eligible_categories=product.category,
+            requires_voucher=False, 
+        ).distinct()
 
         # If customer is provided, filter out offers they're not eligible for
         if customer:
@@ -123,22 +119,31 @@ class Cart:
             }
 
         return {
-            "product_offers": sorted(
-                product_offers, key=lambda x: x.discount_value, reverse=True
-            ),
-            "category_offers": sorted(
-                category_offers, key=lambda x: x.discount_value, reverse=True
-            ),
-            "total_offers": len(product_offers) + len(category_offers),
+            "product_offers": sorted(product_offers, key=lambda x: x.discount_value, reverse=True),
+            "category_offers": sorted(category_offers, key=lambda x: x.discount_value, reverse=True),
+            "total_offers": len(product_offers) + len(category_offers)
         }
 
+    def _get_applicable_order_offers(self):
+        active_offers = Offer.objects.filter(
+            target="Order",
+            requires_voucher=False,
+            is_active=True,
+            conditions__condition_type="min_order_value",
+        )
+        return {offer for offer in active_offers if offer.valid_for_order(order=self)}
+
+    def _find_best_order_offers(self):
+        available_offers = list(self._get_applicable_order_offers())
+        if not available_offers:
+            return None
+        return max(available_offers, key=lambda x: x.discount_value)
+    
     def _find_best_offer(self, product):
         """
         Finds the best applicable offer for this cart item.
         Returns the offer that gives the highest discount.
         """
-
-        # Get all active offers for the product
         active_offers = self._get_active_offers(product, customer=self.customer)
 
         # Combine all applicable offers
@@ -148,7 +153,6 @@ class Cart:
 
         # Filter out offers that require vouchers
         available_offers = [offer for offer in all_offers if not offer.requires_voucher]
-
         if not available_offers:
             return None
 
@@ -172,26 +176,27 @@ class Cart:
 
         return None
 
-    def apply_best_offer(self, product, quantity):
+    def apply_best_offer(self, variant, quantity):
         """
         Finds and applies the best available offer to this cart item.
         Updates the cart item with the applied offer and new price.
         """
         discount = {}
+        product = variant.product
         best_offer = self._find_best_offer(product)
-
+            
         if best_offer:
             discount["offer_id"] = best_offer.id
 
             if best_offer.is_free_shipping and product.shipping_fee:
                 discount["discounted_shipping"] = float(0.0)
             else:
-                original_price = product.base_price
+                original_price = variant.final_price * quantity
                 discounted_price = best_offer.apply_discount(original_price)
                 discount["discounted_price"] = float(discounted_price)
 
-            # Update offer usage statistics if needed
-            saved = float(original_price - discounted_price) * quantity
+            # Update offer usage statistics 
+            saved = float(original_price - discounted_price)
             best_offer.update_total_discount(saved)
 
             discount["discount_type"] = best_offer.discount_type
@@ -199,29 +204,52 @@ class Cart:
             discount["saved"] = saved
             return True, discount
 
-        return False, "No applicable offers found"
+        return False, None
+
+    def _get_order_offer(self):
+        best_offer = self._find_best_order_offers()
+        if best_offer:
+            return {
+                "offer_id": best_offer.id,
+                "offer_title": best_offer.title,
+                "discount_value": best_offer.discount_value,
+                "discount_type": best_offer.discount_type,
+            }
+        return None
 
     @staticmethod
     def item_price(item):
-        return (
-            Decimal(item["price"]) * item["quantity"]
-            if not item.get("applied_offer")
-            else Decimal(item["applied_offer"].get("discounted_price")) * item["quantity"]
-        )
+        quantity = item["quantity"]
+        offer = item.get("applied_offer")
+        if offer and hasattr(offer, "discounted_price"):
+            return Decimal(offer.get("discounted_price")) * quantity
+        return Decimal(item["price"]) * quantity
 
     def total_shipping(self):
-        try:
-            return sum(
-                Decimal(value.get("shipping", 0))
-                if not value.get("applied_offer").get("discounted_shipping")
-                else Decimal(value["applied_offer"].get("discounted_shipping"))
-                for value in self.cart.values()
-            )
-        except AttributeError:
-            return sum(Decimal(value.get("shipping", 0)) for value in self.cart.values())
+        total = 0
+        for value in self.cart.values():
+            applied_offer = value.get("applied_offer")
+            if applied_offer and hasattr(applied_offer, "discounted_shipping"):
+                total += applied_offer.get("discounted_shipping")
+            else:
+                total += value.get("shipping")
+        return max(total, Decimal("0.0"))
 
     def subtotal(self):
         return sum(self.item_price(item) for item in self.cart.values())
 
     def total(self):
-        return self.subtotal() + self.total_shipping()
+        shipping = self.total_shipping()
+        subtotal = self.subtotal()
+        order_offer = self._get_order_offer()
+        total = 0
+        if order_offer:
+            try:
+                offer = Offer.objects.get(id=order_offer["offer_id"], target="Order")
+                if offer.is_free_shipping:
+                    shipping = Decimal('0.0')
+                else:
+                    total = offer.apply_discount(subtotal + Decimal(shipping))
+            except offer.DoesNotExist:
+                pass
+        return Decimal(total) if total else subtotal + Decimal(shipping) 

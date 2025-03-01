@@ -2,20 +2,21 @@ from django.db import transaction
 from django.shortcuts import redirect
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from rest_framework import status, reverse
+from rest_framework import reverse, status
+from rest_framework.generics import GenericAPIView, get_object_or_404
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.generics import GenericAPIView, get_object_or_404
 
 from cart.cart import Cart
 from customers.serializers import AddressSerializer
+
 from .models import Order, OrderItem
 from .serializers import OrderItemSerializer, OrderSerializer
 
 
 # Create your views here.
-class OrdersListView(GenericAPIView, LimitOffsetPagination):
+class OrderListView(GenericAPIView, LimitOffsetPagination):
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
     filterset_fields = ["status"]
@@ -109,7 +110,6 @@ class OrdersListView(GenericAPIView, LimitOffsetPagination):
                 order.address = serializer.save()
             else:
                 order.address = customer.address
-
             order.save()
 
             match action:
@@ -234,11 +234,21 @@ class OrderItemView(GenericAPIView):
         Returns:
             HttpResponse 403: If the order can't if the order can't be modified.
             None: If the order is still awaiting payment.
-
         """
         order = get_object_or_404(Order.objects.filter(customer=customer), id=order_id)
         if order.status != Order.OrderStatus.AWAITING_PAYMENT:
             return Response(status=status.HTTP_403_FORBIDDEN)
+        return (
+            True
+            if order.status == Order.OrderStatus.AWAITING_PAYMENT
+            else Response(status=status.HTTP_403_FORBIDDEN)
+        )
+
+    def dispatch(self, request, *args, **kwargs):
+        order = self.get_object()
+        if request.method.lower() != "get":
+            return self.check_order_editable(request.user, order.id)
+        return super().dispatch(request, *args, **kwargs)
 
     @swagger_auto_schema(
         operation_summary="Get an item from an order",
@@ -264,11 +274,10 @@ class OrderItemView(GenericAPIView):
         tags=["Order"],
     )
     def put(self, request, order_id, item_id):
-        self.check_order_editable(request.user, order_id)
         order_item = self.get_order_item(order_id, item_id)
 
         # Only the quantity of the item can be updated
-        data = {"quantity": request.data.get("quantity")}
+        data = {"quantity": request.data.get("quantity", 1)}
         serializer = self.get_serializer(instance=order_item, data=data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -279,7 +288,6 @@ class OrderItemView(GenericAPIView):
         tags=["Order"],
     )
     def delete(self, request, order_id, item_id):
-        self.check_order_editable(request.user, order_id)
         order_item = self.get_order_item(order_id, item_id)
         order_item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
