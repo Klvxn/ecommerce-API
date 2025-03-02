@@ -7,7 +7,7 @@ from django.db.models import Case, F, When
 
 from catalogue.models import Product, ProductVariant, Timestamp
 from customers.models import Address
-from discount.models import Offer, Voucher
+from discount.models import Offer
 
 
 # Create your models here.
@@ -97,7 +97,7 @@ class Order(Timestamp):
         )
 
     @transaction.atomic
-    def apply_offer(self, offer=None, voucher_code=None):
+    def apply_offer(self, offer=None, voucher=None):
         """
         Apply an offer or voucher to the order items if eligible.
 
@@ -113,66 +113,28 @@ class Order(Timestamp):
             Offer or None: The applied offer if successfully applied, otherwise None.
         """
         # Validate input: either offer or voucher_code must be provided, but not both
-        if not (offer or voucher_code) or (offer and voucher_code):
+        if not (offer or voucher) or (offer and voucher):
             return None
 
-        # If voucher code is provided, try to get the associated offer
-        if voucher_code:
-            try:
-                voucher = (
-                    Voucher.objects.filter(code=voucher_code.upper())
-                    .select_related("offer")
-                    .get()
-                )
+        if voucher:
+            offer_to_apply = voucher.offer
 
-                if not voucher.is_valid():
-                    return None
+        elif offer and offer.requires_voucher:
+            pass
+            # find a way to handle offers that requires vouchers
 
-                offer_to_apply = voucher.offer
-                voucher.update_usage_count()
-
-            except Voucher.DoesNotExist:
-                return None
         else:
             offer_to_apply = offer
 
-        # Fetch all items in the order with their related products
-        items = self.items.select_related("product").all()
-        if not items:
-            return None
-
-        # Track which items will need updating
-        items_to_update = []
-
-        # Handle different offer types
-        if offer_to_apply.is_free_shipping:
-            # Apply free shipping to all items
-            for item in items:
-                item.discounted_shipping = D("0.00")
-                item.applied_offer = offer_to_apply
-                items_to_update.append(item)
-
-        elif offer_to_apply.for_product:
-            # For product-level offers, we need to check eligibility per product
-            for item in items:
-                # Check if this product is eligible (if we have restrictions)
-                if not offer_to_apply.valid_for_product(item.product):
-                    continue
-                          
-                # Apply the discount to the item's price
-                item.discounted_price = offer_to_apply.apply_discount(item.unit_price)
-                item.applied_offer = offer_to_apply
-                items_to_update.append(item)
-
-        elif offer_to_apply.for_order:
+        if offer_to_apply.for_order:
             # For order-level offers, check if the order meets conditions
-    
             try:
                 # Check minimum order value if specified
                 if not offer_to_apply.valid_for_order(self):
                     return None
 
-                # Check customer eligibility if specified
+                # this check is redundant as offer_to_apply.valid_for_order: already checks
+                # if said offer is valid for customer
                 if not offer_to_apply.valid_for_customer(self.customer):
                     return None
 
@@ -185,19 +147,42 @@ class Order(Timestamp):
             self.total_amount = new_subtotal + self.total_shipping()
             self.applied_offer = offer_to_apply
             self.save()
-
-        # Only update if we have items to update
-        if items_to_update:
-
-            # Bulk update order items with the applied discounts
-            OrderItem.objects.bulk_update(
-                items_to_update, ["discounted_price", "discounted_shipping", "applied_offer"]
-            )
-
-            # Update total amount for the order
             return offer_to_apply
 
-        return None
+        elif offer_to_apply.for_product:          
+            # Fetch all items in the order with their related products
+            items = self.items.select_related("product").all()
+            if not items:
+                return None
+
+            items_to_update = []
+
+            # For product-level offers, we need to check eligibility per product
+            for item in items:
+                if offer_to_apply.is_free_shipping:
+                    item.discounted_shipping = D("0.00")
+                    item.applied_offer = offer_to_apply
+                    items_to_update.append(item)
+                    continue
+
+                # Check if this product is eligible (if we have restrictions)
+                if not offer_to_apply.valid_for_product(item.product, self.customer):
+                    continue
+                          
+                # Apply the discount to the item's price
+                item.discounted_price = offer_to_apply.apply_discount(item.unit_price)
+                item.applied_offer = offer_to_apply
+                items_to_update.append(item)
+
+            if items_to_update:  # only update if we have items to update
+                # Bulk update order items with the applied discounts
+                OrderItem.objects.bulk_update(
+                    items_to_update, ["discounted_price", "discounted_shipping", "applied_offer"]
+                )
+                return offer_to_apply
+
+        else:
+            return None
 
 
 class OrderItem(Timestamp):

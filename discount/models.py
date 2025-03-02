@@ -511,11 +511,11 @@ class Voucher(TimeBased):
         )
 
     def is_valid(self, customer=None, order_value=None):
-        if not self.within_usage_limits(customer):
+        if customer and not self.within_usage_limits(customer):
             return False, "Voucher has reached its usage limit"
         if not self.within_validity_period():
             return False, "Voucher offer has expired"
-        if not self.offer.above_min_purchase(order_value):
+        if order_value and not self.offer.above_min_purchase(order_value):
             return False, "Your order is below the required minimum purchase"
         return (
             self.within_usage_limits(customer)

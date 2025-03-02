@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from cart.cart import Cart
 from customers.serializers import AddressSerializer
+from discount.models import Offer, Voucher
 
 from .models import Order, OrderItem
 from .serializers import OrderItemSerializer, OrderSerializer
@@ -50,12 +51,12 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
             required=["action"],
             properties={
                 "action": openapi.Schema(type=openapi.TYPE_STRING),
-                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
+                "voucher_code": openapi.Schema(type=openapi.TYPE_STRING),
                 "address": openapi.Schema(type=openapi.TYPE_OBJECT),
             },
             example={
                 "action": "checkout",
-                "discount_code": "SAVE10",
+                "voucher_code": "SAVE10",
                 "address": {
                     "street_address": "123 Main St",
                     "postal_code": "12345",
@@ -73,7 +74,7 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
         Handle POST request to create an order from the user's cart.
         """
         action = request.data.get("action")
-        discount_code = request.data.get("discount_code")
+        voucher_code = request.data.get("voucher_code")
         shipping_address = request.data.get("address")
         cart = Cart(request)
 
@@ -93,7 +94,7 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
             order = Order.objects.create(customer=customer)
 
             # Apply discount for a product if a voucher code is provided/applicable to the product
-            if discount_code and not order.apply_voucher_offer(discount_code):
+            if voucher_code and not order.apply_voucher_offer(voucher_code):
                 return Response(
                     {"error": "Invalid/Expired voucher code"}, status=status.HTTP_400_BAD_REQUEST
                 )
@@ -166,11 +167,11 @@ class OrderInstanceView(GenericAPIView):
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                "discount_code": openapi.Schema(type=openapi.TYPE_STRING),
+                "voucher_code": openapi.Schema(type=openapi.TYPE_STRING),
                 "address": AddressSerializer,
             },
             example={
-                "discount_code": "SAVE10",
+                "voucher_code": "SAVE10",
                 "address": {
                     "street_address": "123 Main St",
                     "postal_code": "12345",
@@ -191,8 +192,24 @@ class OrderInstanceView(GenericAPIView):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         # Apply discount if a discount code is provided
-        if voucher_code := request.data.get("discount_code"):
-            order.apply_offer(voucher_code)
+        if voucher_code := request.data.get("voucher_code"):
+            voucher = Voucher.objects.get(code=voucher_code.upper())
+            valid, msg = voucher.is_valid(order.customer, order.original_subtotal())
+            
+            if not valid:
+                return Response({"voucher_code": msg}, status=status.HTTP_400_BAD_REQUEST)
+            
+            applied_offer = order.apply_offer(voucher)
+
+            if not applied_offer:
+                return Response(
+                    {
+                        "voucher_code": "Your order/order items are not eligible for this discount offer"
+                    },
+                    status=status.HTTP_201_CREATED,
+                )
+
+            voucher.update_usage_count()  # Update voucher usage count
 
         address = request.data.get("address")
         data = {"address": address}
