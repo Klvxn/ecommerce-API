@@ -20,7 +20,7 @@ class AddCartItemSerializer(serializers.Serializer):
         variant = get_object_or_404(ProductVariant, sku=attrs["variant_sku"])
         if quantity > variant.stock_level:
             raise serializers.ValidationError({
-                "quantity": "Requested quantity exceeds available stock for this variant"
+                "quantity": f"Requested quantity: ({quantity}) exceeds available stock: ({variant.stock_level}) for this variant"
             })
         attrs["variant"] = variant
         return attrs
@@ -48,7 +48,7 @@ class UpdateCartItemSerializer(serializers.Serializer):
         attrs = super().validate(attrs)
         if quantity > variant.stock_level:
             raise serializers.ValidationError({
-                "quantity": "Requested quantity exceeds available stock for this variant"
+                "quantity": f"Requested quantity: ({quantity}) exceeds available stock: ({variant.stock_level}) for this variant"
             })
         attrs["variant"] = variant
         return attrs

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from discount.models import Offer, OfferCondition
+from discount.models import Offer
 from discount.serializers import OfferSerializer
 
 from .models import (
@@ -78,21 +78,8 @@ class ProductListSerializer(serializers.ModelSerializer):
         view_name="store-detail", lookup_field="slug", read_only=True
     )
     media = ProductMediaSerializer(many=True)
-
-    class Meta:
-        model = Product
-        fields = "__all__"
-
-
-class ProductInstanceSerializer(ProductListSerializer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if "product" in self.context:
-            self.product = self.context["product"]
-
-    reviews = ProductReviewSerializer(many=True)
-    variants = ProductVariantSerializer(many=True)
     product_offers = serializers.SerializerMethodField()
+    base_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -107,14 +94,34 @@ class ProductInstanceSerializer(ProductListSerializer):
         )
         return OfferSerializer(filtered_offers, many=True).data
 
+    def get_base_price(self, obj):
+        if obj.variants.exists():
+            variant = obj.variants.order_by("price_adjustment").first()
+            return variant.final_price
+        return obj.base_price
 
-class SimpleProductSerializer(serializers.ModelSerializer):
-    category = serializers.StringRelatedField()
-    store = serializers.StringRelatedField()
+
+class ProductInstanceSerializer(ProductListSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "product" in self.context:
+            self.product = self.context["product"]
+
+    reviews = ProductReviewSerializer(many=True)
+    variants = ProductVariantSerializer(many=True)
 
     class Meta:
         model = Product
-        fields = ["id", "name", "category", "store"]
+        fields = "__all__"
+
+
+
+class SimpleProductSerializer(serializers.ModelSerializer):
+    category = serializers.StringRelatedField()
+
+    class Meta:
+        model = Product
+        fields = ["id", "name", "category"]
 
 
 class CategoryListSerializer(serializers.ModelSerializer):

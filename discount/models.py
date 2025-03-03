@@ -167,7 +167,6 @@ class Offer(TimeBased):
         Returns:
             tuple: (bool, str) - (whether conditions are satisfied, reason if not satisfied)
         """
-        # Guard clause for required parameters
         if customer is None:
             return False, "Customer information is required"
 
@@ -179,7 +178,6 @@ class Offer(TimeBased):
 
         # Handle voucher requirement checks
         if self.requires_voucher:
-            # Check if voucher is provided when required
             if voucher is None:
                 return False, "This offer requires a valid voucher code"
 
@@ -187,11 +185,9 @@ class Offer(TimeBased):
             if voucher.offer_id != self.id:
                 return False, "Invalid voucher for this offer"
 
-            # Check voucher usage limits
             if not voucher.within_usage_limits(customer):
                 return False, "Voucher has reached its maximum usage limit"
 
-            # Check voucher validity period
             if not voucher.within_validity_period():
                 return False, "Voucher has expired"
 
@@ -218,7 +214,6 @@ class Offer(TimeBased):
         ):
             return False, "Offer is not valid for this store"
 
-        # Get all conditions for this offer
         conditions = self.conditions.all()
 
         # If there are no conditions and we passed the basic checks, the offer is valid
@@ -255,7 +250,6 @@ class Offer(TimeBased):
                             f"Order value must be at least {condition.min_order_value}",
                         )
 
-        # If we've made it here, all conditions are satisfied
         return True, "All conditions satisfied"
 
     def valid_for_customer(self, customer):
@@ -327,48 +321,6 @@ class Offer(TimeBased):
 
         return order.subtotal() >= mov_condition.min_order_value
 
-    def assign_to_products(self, products, condition):
-        """
-        Assign this offer to multiple products.
-
-        Args:
-            products: QuerySet or list of Product instances
-        """
-        if condition not in self.conditions.all():
-            raise ValueError("Condition does not belong to this offer")
-        mappings = [
-            ProductOffer(product=product, offer=self, condition_set=condition)
-            for product in products
-        ]
-        ProductOffer.objects.bulk_create(mappings, ignore_conflicts=True)
-
-    def assign_to_categories(self, categories, condition):
-        """
-        Assign this offer to multiple categories.
-
-        Args:
-            categories: QuerySet or list of Category instances
-        """
-        if condition not in self.conditions.all():
-            raise ValueError("Condition does not belong to this offer")
-        mappings = [
-            CategoryOffer(category=category, offer=self, condition_set=condition)
-            for category in categories
-        ]
-        CategoryOffer.objects.bulk_create(mappings, ignore_conflicts=True)
-
-    def remove_from_products(self, products):
-        """
-        Remove this offer from specific products.
-        """
-        ProductOffer.objects.filter(offer=self, product__in=products).delete()
-
-    def remove_from_categories(self, categories):
-        """
-        Remove this offer from specific categories.
-        """
-        CategoryOffer.objects.filter(offer=self, category__in=categories).delete()
-
 
 class OfferCondition(Timestamp):
     CONDITIONS = [
@@ -409,45 +361,6 @@ class OfferCondition(Timestamp):
         return True
 
 
-# Map offers directly to products/categories
-class ProductOffer(Timestamp):
-    product = models.ForeignKey(
-        "catalogue.Product", on_delete=models.CASCADE, related_name="product_offers"
-    )
-    offer = models.ForeignKey(Offer, on_delete=models.CASCADE)
-    condition = models.ForeignKey(OfferCondition, on_delete=models.CASCADE)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        unique_together = ("product", "offer")
-        indexes = [
-            models.Index(fields=["product", "offer"]),
-            models.Index(fields=["offer", "product"]),
-        ]
-
-    def __str__(self):
-        return f"{self.product}- {self.offer}"
-
-
-class CategoryOffer(Timestamp):
-    category = models.ForeignKey(
-        "catalogue.Category", on_delete=models.CASCADE, related_name="category_offers"
-    )
-    offer = models.ForeignKey(Offer, on_delete=models.CASCADE)
-    condition = models.ForeignKey(OfferCondition, on_delete=models.CASCADE)
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        unique_together = ("category", "offer")
-        indexes = [
-            models.Index(fields=["category", "offer"]),
-            models.Index(fields=["offer", "category"]),
-        ]
-
-    def __str__(self):
-        return f"{self.category}- {self.offer}"
-
-
 class Voucher(TimeBased):
     """
     Represents a voucher in the system. Vouchers are tied to offers and can have different
@@ -476,8 +389,8 @@ class Voucher(TimeBased):
 
     class Meta:
         indexes = [
-            models.Index(fields=["code"]),
-            models.Index(fields=["valid_from", "valid_to"]),
+            models.Index(fields=["code", "valid_to"]),
+            models.Index(fields=["offer", "usage_type"]),
         ]
 
     def __str__(self):
@@ -485,8 +398,11 @@ class Voucher(TimeBased):
 
     def save(self, *args, **kwargs):
         self.code = self.code.upper()
-        self.offer.requires_voucher = True
+        creating = self._state.adding
         super().save(*args, **kwargs)
+        if creating:
+            self.offer.requires_voucher = True
+            self.offer.save(update_fields=["requires_voucher"])
 
     def update_usage_count(self):
         self.num_of_usage += 1

@@ -6,6 +6,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import status
+from rest_framework.decorators import api_view
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -31,18 +32,16 @@ class CartView(GenericAPIView):
     def get(self, request):
         cart = Cart(request)
         if cart.cart:
-            data = {
-                "items": cart.cart,
-                "count": len(cart),
-                "subtotal": cart.subtotal(),
-                "shipping": cart.total_shipping(),
-                "total": cart.total(),
-            }
-            if applied_offer := cart._get_order_offer():
-                data["applied_offer"] = applied_offer
-                data["saved"] = True
-                data["applied_discount"] = True
-            return Response(data, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "items": cart.cart_items.values(),
+                    "count": len(cart),
+                    "subtotal": cart.subtotal(),
+                    "shipping": cart.total_shipping(),
+                    "total": cart.total(),
+                },
+                status=status.HTTP_200_OK,
+            )
         return Response({"info": "Your cart is empty"}, status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -78,7 +77,7 @@ class CartView(GenericAPIView):
         cart.add(variant, quantity)
         return Response(
             {
-                "success": f"{quantity} of {variant} has been added to cart",
+                "success": f"{quantity}x {variant} has been added to cart",
                 "cart_total": cart.total(),
             },
             status=status.HTTP_200_OK,
@@ -160,3 +159,36 @@ class CartItemView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CartVoucherView(APIView):
+    def post(self, request):
+        """
+        Apply voucher code to a customer's cart
+        """
+        voucher_code = request.data.get("voucher_code")
+        if not voucher_code:
+            return Response(
+                {"voucher_code": "Voucher code is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        cart = Cart(request)
+        applied, msg = cart.apply_voucher(voucher_code=voucher_code)
+        if not applied:
+            return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"success": msg}, status=status.HTTP_200_OK)
+
+    def delete(self, request):
+        """
+        Remove applied voucher from a customer's cart
+        """
+        cart = Cart(request)
+        removed = cart.remove_voucher()
+        if not removed:
+            return Response({"error": "No applied voucher to remove"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {"success": "Applied voucher has been successfully removed"},
+            status=status.HTTP_200_OK,
+        )
