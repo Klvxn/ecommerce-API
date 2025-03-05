@@ -142,12 +142,17 @@ class Cart:
         try:
             voucher = self.applied_voucher
             offer = voucher.offer
+
             if offer.for_product:
+                variant_ids = [item["variant_id"] for item in self.cart_items.values()]
+                variants = ProductVariant.objects.select_related("product").filter(id__in=variant_ids)
+                variants_map = {variant.id: variant for variant in variants}
+
                 for item in self.cart_items.values():
                     if item["offer_applied"]:
                         continue  # skip items with active offers
 
-                    variant = ProductVariant.objects.get(id=item["variant_id"])
+                    variant = variants_map.get(item["variant_id"])
                     if offer.valid_for_product(variant.product, self.customer):
                         item_price = item["price"] * item["quantity"]
                         if offer.is_percentage_discount:
