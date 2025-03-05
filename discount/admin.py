@@ -14,7 +14,7 @@ class OfferConditionInline(admin.StackedInline):
 
 @admin.register(Offer)
 class OfferAdmin(admin.ModelAdmin):
-    list_display = ["__str__", "store", "discount_type", "has_expired"]
+    list_display = ["__str__", "store", "discount_type", "is_expired"]
     readonly_fields = ["store"]
     inlines = [OfferConditionInline]
     form = OfferModelForm

@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
 
-from catalogue.models import Timestamp
+from catalogue.abstract import TimeBased, Timestamp
 
 
 class ActiveOfferManager(models.Manager):
@@ -19,21 +19,6 @@ class ActiveOfferManager(models.Manager):
                 # is_active=True,
             )
         )
-
-
-class TimeBased(Timestamp):
-    valid_from = models.DateTimeField()
-    valid_to = models.DateTimeField()
-
-    class Meta:
-        abstract = True
-
-    def clean(self):
-        if self.valid_from >= self.valid_to:
-            raise ValidationError(
-                f"Valid to {self.valid_to} cannot be earlier than valid from {self.valid_from}"
-            )
-        super().clean()
 
 
 class Offer(TimeBased):
@@ -70,6 +55,7 @@ class Offer(TimeBased):
     total_discount_offered = models.DecimalField(
         max_digits=10, decimal_places=2, default=D(0.00), blank=True
     )
+    max_discount_allowed = models.DecimalField(max_digits=10, decimal_places=2)
 
     claimed_by = models.ManyToManyField("customers.Customer", blank=True)
 
@@ -92,7 +78,7 @@ class Offer(TimeBased):
     #     super().clean()
 
     @property
-    def has_expired(self):
+    def is_expired(self):
         return not (self.valid_from <= datetime.now(timezone.utc) <= self.valid_to)
 
     # Offer discount type
@@ -140,6 +126,12 @@ class Offer(TimeBased):
 
     def calc_fixed_discount(self, price):
         return price - self.discount_value
+
+    def discount_amount(self, price):
+        if self.is_percentage_discount:
+            return price * D(self.discount_value / 100)
+        elif self.is_fixed_discount:
+            return self.discount_value
 
     def update_total_discount(self, new_amount):
         self.total_discount_offered += D(new_amount)
@@ -204,7 +196,7 @@ class Offer(TimeBased):
         if not self.is_active:
             return False, "Offer is not currently active"
 
-        if self.has_expired:
+        if self.is_expired:
             return False, "Offer has expired"
 
         # Check store restrictions if applicable
@@ -223,11 +215,12 @@ class Offer(TimeBased):
         for condition in conditions:
             # Check customer group conditions
             if condition.condition_type == "customer_groups":
-                if (
-                    condition.eligible_customers == "first_time_buyers"
-                    and not customer.is_first_time_buyer
-                ):
-                    return False, "Offer is only valid for first-time buyers"
+                if condition.eligible_customers == "first_time_buyers":
+                    if not customer.is_authenticated:
+                        return False, "Offer is only valid for registered users"
+
+                    elif not customer.is_first_time_buyer:
+                        return False, "Offer is only valid for first-time buyers"
 
             # Check product-specific conditions for product-level offers
             elif self.for_product:
@@ -265,10 +258,12 @@ class Offer(TimeBased):
         eligible_customers = cust_group_cond.eligible_customers
 
         # If eligible for all customers, or customer is a first-time buyer when that's required
-        if eligible_customers == "all_customers" or (
-            eligible_customers == "first_time_buyers" and customer.is_first_time_buyer
-        ):
+        if eligible_customers == "all_customers":
             return True
+
+        if eligible_customers == "first_time_buyers":
+            if customer.is_authenticated and customer.is_first_time_buyer:
+                return True
 
         return False
 
@@ -363,8 +358,7 @@ class OfferCondition(Timestamp):
 
 class Voucher(TimeBased):
     """
-    Represents a voucher in the system. Vouchers are tied to offers and can have different
-    usage types
+    Vouchers are tied to offers with different usage types
     """
 
     SINGLE, MULTIPLE, ONCE_PER_CUSTOMER = "single", "multiple", "once per customer"
@@ -422,7 +416,7 @@ class Voucher(TimeBased):
 
     def within_validity_period(self):
         return (
-            not self.offer.has_expired
+            not self.offer.is_expired
             and self.valid_from < datetime.now(timezone.utc) <= self.valid_to
         )
 
