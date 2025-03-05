@@ -29,7 +29,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
         if offer:
             # Validate offer hasn't expired
-            if offer.has_expired:
+            if offer.is_expired:
                 raise serializers.ValidationError("The offer has expired and cannot be applied")
 
             # Validate discount application based on offer target
@@ -66,12 +66,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    address = AddressSerializer()
+    billing_address = AddressSerializer()
     customer = SimpleCustomerSerializer(read_only=True)
     url = serializers.HyperlinkedIdentityField(view_name="order_detail")
     items = OrderItemSerializer(many=True, required=False)
     # total_discount = serializers.SerializerMethodField(read_only=True)
-    subtotal = serializers.SerializerMethodField(read_only=True)
+    # subtotal = serializers.SerializerMethodField(read_only=True)
     shipping = serializers.SerializerMethodField(read_only=True)
     # savings = serializers.SerializerMethodField(read_only=True)
 
@@ -83,10 +83,10 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer",
             "created",
             "updated",
-            "address",
+            "billing_address",
             "items",
             "items_count",
-            # "savings",
+            "savings_on_items",
             "status",
             "subtotal",
             # "total_discount",
@@ -94,21 +94,18 @@ class OrderSerializer(serializers.ModelSerializer):
             "total_amount",
         ]
 
-    def get_subtotal(self, obj):
-        return float(obj.subtotal())
-
-    # def get_savings(self, obj):
-    #     return obj.total_savings
+    # def get_subtotal(self, obj):
+    #     return float(obj.subtotal())
 
     def get_shipping(self, obj):
         return float(obj.total_shipping())
 
     def update(self, instance, validated_data):
-        data = validated_data.get("address")
+        data = validated_data.get("billing_address")
         try:
             address, _ = Address.objects.get_or_create(**data)
         except Address.MultipleObjectsReturned:
             address = Address.objects.filter(**data).first()
-        instance.address = address
+        instance.billing_address = address
         instance.save()
         return instance

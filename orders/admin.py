@@ -12,11 +12,9 @@ class OrderItemInline(admin.StackedInline):
         "product",
         "variant",
         "unit_price",
-        "discounted_price",
         "quantity",
         "shipping",
-        "discounted_shipping",
-        "applied_offer",
+        "offer",
         "created",
         "updated",
     ]

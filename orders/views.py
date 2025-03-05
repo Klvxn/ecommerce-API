@@ -10,7 +10,6 @@ from rest_framework.response import Response
 
 from cart.cart import Cart
 from customers.serializers import AddressSerializer
-from discount.models import Offer, Voucher
 
 from .models import Order, OrderItem
 from .serializers import OrderItemSerializer, OrderSerializer
@@ -51,12 +50,10 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
             required=["action"],
             properties={
                 "action": openapi.Schema(type=openapi.TYPE_STRING),
-                "voucher_code": openapi.Schema(type=openapi.TYPE_STRING),
                 "address": openapi.Schema(type=openapi.TYPE_OBJECT),
             },
             example={
                 "action": "checkout",
-                "voucher_code": "SAVE10",
                 "address": {
                     "street_address": "123 Main St",
                     "postal_code": "12345",
@@ -74,43 +71,36 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
         Handle POST request to create an order from the user's cart.
         """
         action = request.data.get("action")
-        voucher_code = request.data.get("voucher_code")
-        shipping_address = request.data.get("address")
+        billing_address = request.data.get("address")
         cart = Cart(request)
+        customer = cart.customer
 
         # Validate the action type
         if action not in ("checkout", "save_order"):
             return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Ensure the user's cart is not empty
-        if len(cart) <= 0:
+        if len(cart.cart_items) <= 0:
             return Response(
                 {"error": "Can't create an order. Your cart is empty"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         with transaction.atomic():
-            customer = request.user
             order = Order.objects.create(customer=customer)
 
-            # Apply discount for a product if a voucher code is provided/applicable to the product
-            if voucher_code and not order.apply_voucher_offer(voucher_code):
+            #  A new billing  address is provided or use customer's address
+            if not (billing_address or customer.address):
                 return Response(
-                    {"error": "Invalid/Expired voucher code"}, status=status.HTTP_400_BAD_REQUEST
+                    {"error": "Billing address was not provided"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
-            #  A new shipping address is provided or use customer's address
-            if not (shipping_address or customer.address):
-                return Response(
-                    {"error": "Shipping address was not provided"}, status=status.HTTP_400_BAD_REQUEST
-                )
-
-            if shipping_address:
-                serializer = AddressSerializer(data=shipping_address)
+            if billing_address:
+                serializer = AddressSerializer(data=billing_address)
                 serializer.is_valid(raise_exception=True)
-                order.address = serializer.save()
+                order.billing_address = serializer.save()
             else:
-                order.address = customer.address
+                order.billing_address = customer.address
             order.save()
 
             match action:
@@ -163,15 +153,11 @@ class OrderInstanceView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="Update an order with a shipping address or voucher code",
+        operation_summary="Update an order with a new billing address",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            properties={
-                "voucher_code": openapi.Schema(type=openapi.TYPE_STRING),
-                "address": AddressSerializer,
-            },
+            properties={"address": AddressSerializer},
             example={
-                "voucher_code": "SAVE10",
                 "address": {
                     "street_address": "123 Main St",
                     "postal_code": "12345",
@@ -191,33 +177,13 @@ class OrderInstanceView(GenericAPIView):
         if order.status != Order.OrderStatus.AWAITING_PAYMENT:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
-        # Apply discount if a discount code is provided
-        if voucher_code := request.data.get("voucher_code"):
-            voucher = Voucher.objects.get(code=voucher_code.upper())
-            valid, msg = voucher.is_valid(order.customer, order.original_subtotal())
-            
-            if not valid:
-                return Response({"voucher_code": msg}, status=status.HTTP_400_BAD_REQUEST)
-            
-            applied_offer = order.apply_offer(voucher)
-
-            if not applied_offer:
-                return Response(
-                    {
-                        "voucher_code": "Your order/order items are not eligible for this discount offer"
-                    },
-                    status=status.HTTP_201_CREATED,
-                )
-
-            voucher.update_usage_count()  # Update voucher usage count
-
         address = request.data.get("address")
         data = {"address": address}
         serializer = OrderSerializer(instance=order, data=data)
         serializer.context["request"] = request
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(operation_summary="Delete an order", tags=["Order"])
     def delete(self, request, pk):
@@ -275,29 +241,6 @@ class OrderItemView(GenericAPIView):
     def get(self, request, order_id, item_id):
         order_item = self.get_order_item(order_id, item_id)
         serializer = self.get_serializer(order_item)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @swagger_auto_schema(
-        operation_summary="Update an item's quantity in a customer's order",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=["quantity"],
-            properties={
-                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
-            },
-            example={"quantity": 12},
-        ),
-        responses={200: OrderItemSerializer, 400: "Bad Request", 404: "Not Found"},
-        tags=["Order"],
-    )
-    def put(self, request, order_id, item_id):
-        order_item = self.get_order_item(order_id, item_id)
-
-        # Only the quantity of the item can be updated
-        data = {"quantity": request.data.get("quantity", 1)}
-        serializer = self.get_serializer(instance=order_item, data=data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(

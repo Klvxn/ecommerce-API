@@ -6,7 +6,6 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import status
-from rest_framework.decorators import api_view
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -77,7 +76,7 @@ class CartView(GenericAPIView):
         cart.add(variant, quantity)
         return Response(
             {
-                "success": f"{quantity}x {variant} has been added to cart",
+                "success": f"{quantity}x {variant} has been added",
                 "cart_total": cart.total(),
             },
             status=status.HTTP_200_OK,
@@ -89,38 +88,6 @@ class CartView(GenericAPIView):
         return Response({"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema_view(
-    # PUT method schema
-    put=extend_schema(
-        summary="Update an item in the cart",
-        request={
-            "type": "object",
-            "required": ["product_sku", "quantity"],
-            "properties": {"product_sku": {"type": "string"}, "quantity": {"type": "integer"}},
-        },
-        responses={
-            200: {"type": "object", "properties": {"success": {"type": "string"}}},
-            400: {"type": "object", "properties": {"error": {"type": "string"}}},
-        },
-        examples=[
-            OpenApiExample("Example", value={"product_sku": "3_d845d16d", "quantity": 12})
-        ],
-        tags=["cart"],
-    ),
-    # DELETE method schema
-    delete=extend_schema(
-        summary="Remove an item from cart or clear the cart",
-        request={"type": "object", "properties": {"product_sku": {"type": "string"}}},
-        responses=[
-            OpenApiResponse(
-                response=204,
-                description={"type": "object", "properties": {"success": {"type": "string"}}},
-            )
-        ],
-        examples=[OpenApiExample("Example", value={"product_sku": "3_d845d16d"})],
-        tags=["cart"],
-    ),
-)
 class CartItemView(APIView):
     """
     View to managing cart items.
@@ -162,6 +129,8 @@ class CartItemView(APIView):
 
 
 class CartVoucherView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         """
         Apply voucher code to a customer's cart
