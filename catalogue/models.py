@@ -1,25 +1,19 @@
-import magic
 import os
 
+import magic
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 
 from customers.models import get_sentinel_user
+from discount.models import Offer
 from stores.models import Store
 
+from .abstract import Timestamp
 
 # Create your models here.
 User = get_user_model()
-
-
-class Timestamp(models.Model):
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        abstract = True
 
 
 class Category(models.Model):
@@ -65,15 +59,6 @@ class Product(Timestamp):
     def __str__(self):
         return self.name
 
-    def clean(self):
-        # if self.is_standalone and self.variants.exists():
-        #     return ValidationError("Standalone products cannot have variants")
-        super().clean()
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        # self.full_clean()
-
     @property
     def has_variants(self):
         return not self.is_standalone and self.variants.exists()
@@ -86,27 +71,56 @@ class Product(Timestamp):
         self.save()
 
     def update_rating(self):
-        """
-        Updates the rating field of the product with value from the
-        `calculate_rating` method.
-
-        Returns:
-            None
-        """
         self.rating = self.calculate_rating()
         self.save()
 
     def calculate_rating(self):
-        """
-        Calculate the average rating of the product based on its
-        associated reviews.
-
-        Returns:
-            float or None: The calculated average rating, or None if no reviews.
-        """
         results = self.reviews.aggregate(sum=models.Sum("rating"), count=models.Count("id"))
         rating_sum, reviews_count = results.values()
         return rating_sum / reviews_count if reviews_count else None
+
+    def get_active_offers(self):
+       # Get all active offers applicable to this product, either directly or through its category.
+        active_offers = Offer.objects.filter(
+            models.Q(
+                conditions__condition_type="specific_products",
+                conditions__eligible_products=self,
+            )
+            | models.Q(
+                conditions__condition_type="specific_categories",
+                conditions__eligible_categories=self.category,
+            ),
+            target="Product",
+            requires_voucher=False,
+            is_active=True,
+        )
+        return active_offers
+
+    def find_best_offer(self, customer):
+        """
+        Finds the best applicable offer
+        Returns the offer that gives the highest discount.
+        """
+        active_offers = self.get_active_offers()
+
+        # Calculate the actual discount amount for each offer
+        offer_discounts = []
+        original_price = self.base_price
+
+        for offer in active_offers:
+            is_valid, _ = offer.satisfies_conditions(product=self, customer=customer)
+
+            if is_valid:
+                discounted_price = offer.apply_discount(original_price)
+                discount_amount = original_price - discounted_price
+                offer_discounts.append((offer, discount_amount))
+
+        # Sort by discount amount and get the best offer
+        if offer_discounts:
+            best_offer, _ = max(offer_discounts, key=lambda x: x[1])
+            return best_offer
+
+        return None
 
 
 # Common attributes like colour, size, serve as Global attributes
@@ -156,8 +170,19 @@ class ProductVariant(Timestamp):
         return f"{self.product.name} ({variant_desc})"
 
     @property
-    def final_price(self):
+    def actual_price(self):
         return self.product.base_price + self.price_adjustment
+
+    def get_discount_price(self, customer):
+        # Find and apply best price from the product's offers for the customer 
+        product_offer = self.product.find_best_offer(customer)
+        if product_offer:
+            return product_offer.apply_discount(self.actual_price)
+        return 0
+
+    def get_final_price(self, customer=None):
+        discount_price = None if not customer else self.get_discount_price(customer)  
+        return discount_price if discount_price else self.actual_price
 
     def clean(self):
         super().clean()
@@ -180,12 +205,6 @@ class VariantAttribute(models.Model):
 
     class Meta:
         unique_together = ("variant", "attribute")
-
-    # def clean(self):
-    #     print(self.values)
-    #     if self.attribute.product != self.variant.product:
-    #         raise ValidationError("Attribute must belong to the variant's product")
-    #     return super().clean()
 
 
 class ProductMedia(Timestamp):
