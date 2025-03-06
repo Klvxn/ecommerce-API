@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                     models.When(
                         discounted_price__isnull=False,
                         then=django.db.models.expressions.CombinedExpression(
-                            models.F("discounted_price"), "*", models.F("quantity")
+                            models.F("unit_price"), "*", models.F("quantity")
                         ),
                     ),
                     default=django.db.models.expressions.CombinedExpression(
