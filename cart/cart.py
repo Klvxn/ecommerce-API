@@ -1,8 +1,12 @@
+import logging
 from decimal import Decimal as D
+
+from django.utils import dateparse, timezone
 
 from catalogue.models import ProductVariant
 from discount.models import Voucher
 
+logger = logging.getLogger(__name__)
 
 class Cart:
     """
@@ -14,16 +18,19 @@ class Cart:
         the associated data is the value.
     """
 
-    def __init__(self, request):
+    def __init__(self, request, force_refresh=False):
         self.customer = request.user
         self.session = request.session
         self.session.set_expiry(1800)
-        cart = self.session.get("cart")
-        if not cart:
-            cart = self.session["cart"] = {}
-            cart["cart_items"] = {}
-        self.cart = cart
-        self.cart_items = cart.get("cart_items")
+
+        cart_data = self.session.setdefault(
+            "cart",
+            {"cart_items": {}, "version": 0.10, "last_refreshed": timezone.now().isoformat()},
+        )
+        self.meta = self.cart = cart_data
+        self.cart_items = cart_data["cart_items"]
+
+        self.refresh(force=force_refresh)
 
     def __iter__(self):
         for item in self.cart_items.values():
@@ -33,14 +40,16 @@ class Cart:
         return sum(items["quantity"] for items in self.cart_items.values())
 
     def add(self, variant, quantity):
+        logger.info(f"Adding new item: {variant.product.name} to cart: x{quantity}")
+        self.refresh(force=True)
+
         product = variant.product
         variant_id = variant.id
-        price = variant.get_final_price(self.customer)  # this is the price customer sees and intends to pay for the item
+        price = variant.get_final_price(self.customer)
         original_price = variant.actual_price
         offer_applied = (original_price - price) > 0  # determines if an offer was appplied automatically to the product
-        shipping = product.shipping or 0
+        # shipping = product.shipping or 0
         item_type = "standalone" if product.is_standalone else "variant"
-        attributes = "default" if product.is_standalone else variant.attributes
 
         item_key = f"prod{product.id}_{variant.sku}_dflt"
         item = self.cart_items.get(
@@ -52,9 +61,8 @@ class Cart:
                 "original_price": float(original_price),
                 "quantity": 0,
                 "offer_applied": offer_applied,
-                "shipping": float(shipping),
+                "shipping": float(0),
                 "type": item_type,
-                "attributes": attributes,
             },
         )
         item["quantity"] = quantity
@@ -139,20 +147,20 @@ class Cart:
         return False
 
     def _apply_voucher_discount_to_items(self):
-        try:
+        if hasattr(self, "applied_vouched"):
             voucher = self.applied_voucher
             offer = voucher.offer
 
             if offer.for_product:
                 variant_ids = [item["variant_id"] for item in self.cart_items.values()]
                 variants = ProductVariant.objects.select_related("product").filter(id__in=variant_ids)
-                variants_map = {variant.id: variant for variant in variants}
+                variant_map = {variant.id: variant for variant in variants}
 
                 for item in self.cart_items.values():
                     if item["offer_applied"]:
                         continue  # skip items with active offers
 
-                    variant = variants_map.get(item["variant_id"])
+                    variant = variant_map.get(item["variant_id"])
                     if offer.valid_for_product(variant.product, self.customer):
                         item_price = item["price"] * item["quantity"]
                         if offer.is_percentage_discount:
@@ -167,21 +175,93 @@ class Cart:
                             "discount_amount": discount_amount,
                         }
             self.save()
+        return
+
+    def needs_refresh(self):
+        last_refresh = dateparse.parse_datetime(self.meta.get("last_refreshed"))
+        if not last_refresh:
+            return True
+        return (timezone.now() - last_refresh).total_seconds() > 300
+
+    def refresh(self, force=True):
+        if not self.needs_refresh() and not force:
+            return False
+       
+        logger.info("Refreshing cart items")        
+        variant_ids = [item["variant_id"] for item in self.cart_items.values()]
+        variants = ProductVariant.objects.select_related("product").filter(id__in=variant_ids)
+        variant_map = {variant.id: variant for variant in variants}
+        changed = False
+
+        for key, item in self.cart_items.items():
+            variant = variant_map.get(item["variant_id"])
+
+            if not variant or not variant.is_active:
+                del self.cart_items[key]
+                changed = True
+                continue
+
+            current_price = variant.get_final_price(self.customer)
+            if not self._update_item_price(item, variant, current_price):
+                continue
+
+            changed |= self._update_offer_status(item, variant)
+
+        if changed:
+            self._apply_voucher_discount_to_items()
+            self.meta["last_refreshed"] = timezone.now().isoformat()
+            self.meta["version"] = round(self.meta["version"] + 0.1, 2)
+            # send notifs to customers
+            return self.save()
+        return False
+
+    def _update_item_price(self, item, variant, current_price):
+        if item["price"] == float(current_price):
+            return False
+
+        item.update({
+            "price": float(current_price),
+            "original_price": float(variant.actual_price),
+            "offer_applied": current_price < variant.actual_price,
+        })
+        return True
+
+    def _update_offer_status(self, item, variant):
+        if not item["offer_applied"]:
+            if "active_offer" in item:
+                del item["active_offer"]
+            return False
+
+        try:
+            offer = variant.product.find_best_offer(self.customer)
+            is_valid = offer and offer.is_active and not offer.is_expired
+            if "active_offer" not in item:
+                item["active_offer"] = {
+                    "offer_id": offer.id if offer else None,
+                    "requires_voucher": offer.requires_voucher if offer else None,
+                    "is_valid": is_valid,
+                }
+                return True
         except AttributeError:
-            return
+            is_valid = False
+
+        if is_valid == item["active_offer"]["is_valid"]:
+            return False
+
+        item["active_offer"]["is_valid"] = is_valid
+        return True
 
     def total_shipping(self):
         total = 0
         for value in self.cart_items.values():
-                total += value.get("shipping")
+            total += value.get("shipping")
         return max(total, D("0.0"))
 
     def subtotal(self):
-        # calculates the value of each item with active offer applied
         return sum(item["price"] * item["quantity"] for item in self.cart_items.values())
 
     def get_total_voucher_discounts(self):
-        try:
+        if hasattr(self, "applied_vouched"):
             offer = self.applied_voucher.offer
             if offer.for_product:
                 return sum(
@@ -193,10 +273,7 @@ class Cart:
                     return round(self.subtotal() * (offer.discount_value) / 100)
                 elif offer.is_fixed_discount:
                     return min(offer.discount_value, self.subtotal())
-            else:
-                return 0
-        except AttributeError:
-            return 0
+        return 0
 
     def total(self):
         shipping = self.total_shipping()
