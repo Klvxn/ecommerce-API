@@ -1,11 +1,11 @@
 import logging
+
 from autoslug import AutoSlugField
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils.crypto import get_random_string
 
 from .managers import MyUserManager
-
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,6 @@ class Customer(AbstractUser):
     This model overrides the default username field and required fields
     to use email as the primary user identifier
     """
-
     email = models.EmailField("email address", max_length=254, unique=True, db_index=True)
     slug = AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(null=True)

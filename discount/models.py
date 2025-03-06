@@ -410,8 +410,7 @@ class Voucher(TimeBased):
         if self.usage_type == self.ONCE_PER_CUSTOMER:
             if customer is None or isinstance(customer, AnonymousUser):
                 return False
-            if customer.redeemed_vouchers.filter(id=self.id).exists():
-                return False
+            return not RedeemedVoucher.objects.filter(voucher=self, customer=customer).exists()
         return True
 
     def within_validity_period(self):

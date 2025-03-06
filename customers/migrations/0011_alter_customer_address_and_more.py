@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
             model_name="customer",
             name="redeemed_vouchers",
             field=models.ManyToManyField(
-                blank=True, through="catalogue.RedeemedVoucher", to="catalogue.voucher"
+                blank=True, through="discount.RedeemedVoucher", to="discount.voucher"
             ),
         ),
     ]

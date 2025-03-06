@@ -14,10 +14,10 @@ class Migration(migrations.Migration):
             name="categoryoffer",
             unique_together=None,
         ),
-        migrations.RemoveField(
-            model_name="categoryoffer",
-            name="category",
-        ),
+        # migrations.RemoveField(
+        #     model_name="categoryoffer",
+        #     name="category",
+        # ),
         migrations.RemoveField(
             model_name="categoryoffer",
             name="condition",
