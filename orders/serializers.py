@@ -70,10 +70,7 @@ class OrderSerializer(serializers.ModelSerializer):
     customer = SimpleCustomerSerializer(read_only=True)
     url = serializers.HyperlinkedIdentityField(view_name="order_detail")
     items = OrderItemSerializer(many=True, required=False)
-    # total_discount = serializers.SerializerMethodField(read_only=True)
-    # subtotal = serializers.SerializerMethodField(read_only=True)
     shipping = serializers.SerializerMethodField(read_only=True)
-    # savings = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Order
@@ -89,16 +86,13 @@ class OrderSerializer(serializers.ModelSerializer):
             "savings_on_items",
             "status",
             "subtotal",
-            # "total_discount",
+            "amount_saved",
             "shipping",
             "total_amount",
         ]
 
-    # def get_subtotal(self, obj):
-    #     return float(obj.subtotal())
-
     def get_shipping(self, obj):
-        return float(obj.total_shipping())
+        return float(obj.total_shipping)
 
     def update(self, instance, validated_data):
         data = validated_data.get("billing_address")
