@@ -1,6 +1,9 @@
 from django.shortcuts import redirect
 from django.urls import reverse
-from drf_yasg.utils import swagger_auto_schema
+from drf_spectacular.utils import (
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.generics import CreateAPIView, RetrieveUpdateDestroyAPIView
@@ -11,22 +14,44 @@ from .models import Customer
 from .permissions import CustomerOnly
 from .serializers import CustomerSerializer, CustomerUpdateSerializer
 
-
 # Create your views here.
-class CustomerCreateView(CreateAPIView):
 
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Create a new customer",
+        request=CustomerSerializer,
+        responses={201: CustomerSerializer, 400: None, 401: None},
+        tags=["customer"],
+    ),
+)
+class CustomerCreateView(CreateAPIView):
     queryset = Customer.objects.all()
     permission_classes = [AllowAny]
     serializer_class = CustomerSerializer
 
-    @swagger_auto_schema(operation_summary="Create a customer", tags=["Customer"])
-    def post(self, request, *args, **kwargs):
-        return super().create(request, args, kwargs)
 
-
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get a customer by ID",
+        responses={200: CustomerSerializer, 401: None},
+        tags=["customer"],
+    ),
+    put=extend_schema(
+        summary="Update a customer",
+        request=CustomerSerializer,
+        responses={201: CustomerUpdateSerializer, 400: None, 401: None},
+        tags=["customer"],
+    ),
+    delete=extend_schema(
+        summary="Delete a customer",
+        request=CustomerSerializer,
+        responses={204: {}, 400: None, 401: None},
+        tags=["customer"],
+    ),
+)
 class CustomerInstanceView(RetrieveUpdateDestroyAPIView):
-
-    http_method_names = ["get", "post", "put", "delete"]
+    http_method_names = ["get", "put", "delete"]
     queryset = Customer.objects.all()
     lookup_field = "pk"
     permission_classes = [CustomerOnly]
@@ -42,24 +67,13 @@ class CustomerInstanceView(RetrieveUpdateDestroyAPIView):
             self.check_object_permissions(request, self.get_object())
         return super().dispatch(request, args, kwargs)
 
-    @swagger_auto_schema(operation_summary="Get a customer by ID", tags=["Customer"])
-    def get(self, request, *args, **kwargs):
-        return super().retrieve(request, args, kwargs)
-
-    @swagger_auto_schema(operation_summary="Update a customer", tags=["Customer"])
-    def put(self, request, *args, **kwargs):
-        return super().update(request, args, kwargs)
-
-    @swagger_auto_schema(operation_summary="Delete a customer", tags=["Customer"])
     def delete(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.is_active = False
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@swagger_auto_schema(
-    "get", operation_summary="Get a customer's orders", tags=["Customer"]
-)
+@extend_schema(summary="Get a customer's orders", tags=["customer"])
 @api_view(["GET"])
 def customer_orders(request, pk):
     return redirect(reverse("orders"))
