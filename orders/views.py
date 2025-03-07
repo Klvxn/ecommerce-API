@@ -28,7 +28,9 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
 
     @swagger_auto_schema(
         operation_summary="Get all orders by a customer",
-        manual_parameters=[openapi.Parameter("status", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING)],
+        manual_parameters=[
+            openapi.Parameter("status", in_=openapi.IN_QUERY, type=openapi.TYPE_STRING)
+        ],
         responses={200: OrderSerializer(many=True)},
         tags=["Order"],
     )
@@ -72,7 +74,9 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
         """
         action = request.data.get("action")
         billing_address = request.data.get("billing_address")
-        cart = Cart(request, force_refresh=True)
+        cart = Cart(
+            request, force_refresh=True
+        )  # Force refresh to get the latest cart items and prices
         customer = cart.customer
 
         # Validate the action type
@@ -89,10 +93,11 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
         with transaction.atomic():
             order = Order(customer=customer)
 
-            #  A new billing  address is provided or use customer's address
+            #  A new billing address is provided or use customer's address
             if not (billing_address or customer.address):
                 return Response(
-                    {"billing_address": "Billing address was not provided"}, status=status.HTTP_400_BAD_REQUEST
+                    {"billing_address": "Billing address was not provided"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             if billing_address:
@@ -117,7 +122,9 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
                     )
 
                 case _:
-                    return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response(
+                        {"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST
+                    )
 
 
 class OrderInstanceView(GenericAPIView):
@@ -134,7 +141,6 @@ class OrderInstanceView(GenericAPIView):
     )
     def get(self, request, pk):
         order = self.get_object()
-        print(order.discount_balanced)
         serializer = self.get_serializer(order)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -199,10 +205,6 @@ class OrderItemView(GenericAPIView):
         Args:
             customer (Customer): The customer to whom the order belongs to.
             order_id (UUID): The ID of the order to be modified
-
-        Returns:
-            HttpResponse 403: If the order can't if the order can't be modified.
-            None: If the order is still awaiting payment.
         """
         order = get_object_or_404(Order.objects.filter(customer=customer), id=order_id)
         if order.status != Order.OrderStatus.AWAITING_PAYMENT:

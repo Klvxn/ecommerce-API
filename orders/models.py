@@ -181,8 +181,7 @@ class OrderItem(Timestamp):
         """
         order_items = []
         variant_ids = [item["variant_id"] for item in cart.cart_items.values()]
-        variants = ProductVariant.objects.filter(id__in=variant_ids)
-        variant_map = {variant.id: variant for variant in variants}
+        variant_map = ProductVariant.objects.in_bulk(variant_ids)
 
         if hasattr(cart, "applied_voucher"):
             order.voucher = cart.applied_voucher
