@@ -18,6 +18,10 @@ class AddCartItemSerializer(serializers.Serializer):
         attrs = super().validate(attrs)
         quantity = attrs["quantity"]
         variant = get_object_or_404(ProductVariant, sku=attrs["variant_sku"])
+
+        if not variant.is_active:
+            raise serializers.ValidationError({"item_key": "Product is no longer availabe"})
+
         if quantity > variant.stock_level:
             raise serializers.ValidationError({
                 "quantity": f"Requested quantity: ({quantity}) exceeds available stock: ({variant.stock_level}) for this variant"
@@ -32,7 +36,7 @@ class UpdateCartItemSerializer(serializers.Serializer):
 
     def validate_item_key(self, data):
         cart = self.context["cart"]
-        if data not in cart.cart:
+        if data not in cart.cart_items:
             raise serializers.ValidationError("Invalid cart item key")
         return data
 
@@ -40,11 +44,15 @@ class UpdateCartItemSerializer(serializers.Serializer):
         cart = self.context["cart"]
         item_key = attrs["item_key"]
         quantity = attrs["quantity"]
-        cart_item = cart.cart[item_key]
+        cart_item = cart.cart_items[item_key]
         try:
             variant = ProductVariant.objects.get(id=cart_item["variant_id"])
+            if not variant.is_active:
+                raise serializers.ValidationError({"item_key": "Product is no longer availabe"})
+
         except ProductVariant.DoesNotExist:
             raise serializers.ValidationError({"item_key": "Product variant no longer exists"})
+
         attrs = super().validate(attrs)
         if quantity > variant.stock_level:
             raise serializers.ValidationError({

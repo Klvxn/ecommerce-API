@@ -3,7 +3,6 @@ from drf_spectacular.utils import (
     OpenApiRequest,
     OpenApiResponse,
     extend_schema,
-    extend_schema_view,
 )
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
@@ -30,7 +29,7 @@ class CartView(GenericAPIView):
 
     def get(self, request):
         cart = Cart(request)
-        if cart.cart:
+        if cart.cart_items:
             return Response(
                 {
                     "items": cart.cart_items.values(),
@@ -49,10 +48,7 @@ class CartView(GenericAPIView):
         examples=[
             OpenApiExample(
                 "Valid Request",
-                value={
-                    "quantity": 12,
-                    "variant_sku": "2f23232242f2f3f",
-                },
+                value={"quantity": 12, "variant_sku": "2f23232242f2f3f"},
                 request_only=True,
                 response_only=False,
             )
@@ -102,10 +98,8 @@ class CartItemView(APIView):
             item_key = serializer.validated_data["item_key"]
             quantity = serializer.validated_data["quantity"]
 
-            cart.update(item_key, quantity=quantity)
-            return Response(
-                {"success": "Cart updated with new quantity"}, status=status.HTTP_200_OK
-            )
+            updated, msg = cart.update(item_key, quantity=quantity)
+            return Response({"success": updated, "message": msg}, status=status.HTTP_200_OK) 
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -114,15 +108,16 @@ class CartItemView(APIView):
         serializer = UpdateCartItemSerializer(data=request.data, context={"cart": cart})
         if serializer.is_valid(raise_exception=True):
             item_key = serializer.validated_data["item_key"]
-            if item_key in cart.cart.keys():
+
+            if item_key in cart.cart_items.keys():
                 if removed := cart.remove(item_key):
                     return Response(
-                        {"success": "Item has been removed from cart"},
+                        {"success": removed, "message": "Item has been removed from cart"},
                         status=status.HTTP_204_NO_CONTENT,
                     )
 
             return Response(
-                {"error": "This item is not in your cart"},
+                {"success": removed, "message": "This item is not in your cart"},
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -143,6 +138,7 @@ class CartVoucherView(APIView):
 
         cart = Cart(request)
         applied, msg = cart.apply_voucher(voucher_code=voucher_code)
+
         if not applied:
             return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
 
