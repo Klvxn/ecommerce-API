@@ -54,7 +54,7 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
             },
             example={
                 "action": "checkout",
-                "address": {
+                "billing_address": {
                     "street_address": "123 Main St",
                     "postal_code": "12345",
                     "city": "Anytown",
@@ -71,8 +71,8 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
         Handle POST request to create an order from the user's cart.
         """
         action = request.data.get("action")
-        billing_address = request.data.get("address")
-        cart = Cart(request)
+        billing_address = request.data.get("billing_address")
+        cart = Cart(request, force_refresh=True)
         customer = cart.customer
 
         # Validate the action type
@@ -87,12 +87,12 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
             )
 
         with transaction.atomic():
-            order = Order.objects.create(customer=customer)
+            order = Order(customer=customer)
 
             #  A new billing  address is provided or use customer's address
             if not (billing_address or customer.address):
                 return Response(
-                    {"error": "Billing address was not provided"}, status=status.HTTP_400_BAD_REQUEST
+                    {"billing_address": "Billing address was not provided"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
             if billing_address:
@@ -101,38 +101,23 @@ class OrderListView(GenericAPIView, LimitOffsetPagination):
                 order.billing_address = serializer.save()
             else:
                 order.billing_address = customer.address
+
             order.save()
+            OrderItem.create_from_cart(order, cart)
+            cart.clear()
 
             match action:
-                # Handle checkout action
                 case "checkout":
-                    return self._process_checkout(order, cart)
+                    return redirect(reverse.reverse("payment", args=[order.id]))
 
-                # Handle save_order action
                 case "save_order":
-                    return self._process_save_order(order, cart)
+                    return Response(
+                        {"success": "Your Order has been saved"},
+                        status=status.HTTP_201_CREATED,
+                    )
 
                 case _:
                     return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
-
-    def _process_checkout(self, order, cart):
-        """
-        Handle the checkout process.
-        """
-        OrderItem.create_from_cart(order, cart)
-        cart.clear()
-        return redirect(reverse.reverse("payment", args=[order.id]))
-
-    def _process_save_order(self, order, cart):
-        """
-        Handle saving the order without proceeding to payment.
-        """
-        OrderItem.create_from_cart(order, cart)
-        cart.clear()
-        return Response(
-            {"success": "Your Order has been saved"},
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class OrderInstanceView(GenericAPIView):
@@ -149,6 +134,7 @@ class OrderInstanceView(GenericAPIView):
     )
     def get(self, request, pk):
         order = self.get_object()
+        print(order.discount_balanced)
         serializer = self.get_serializer(order)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
