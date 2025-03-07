@@ -39,7 +39,7 @@ class Offer(TimeBased):
         (FIXED_DISCOUNT, "A fixed amount off of a product's price"),
     )
 
-    TARGET = (
+    APPLIES_TO_CHOICES = (
         # If the offer is being applied to a product or customer's order
         ("Product", "The offer is applicable to specific products"),  # Product-level offer
         ("Order", "Applicable to the customer's order "),  # Order-level offer
@@ -47,10 +47,9 @@ class Offer(TimeBased):
 
     title = models.CharField(max_length=50)
     store = models.ForeignKey("stores.Store", on_delete=models.SET_NULL, null=True, blank=True)
-    target = models.CharField(max_length=50, choices=TARGET)
+    applies_to = models.CharField(max_length=50, choices=APPLIES_TO_CHOICES)
     discount_type = models.CharField(max_length=50, choices=DISCOUNT_TYPE_CHOICES)
     discount_value = models.DecimalField(max_digits=10, decimal_places=2)
-    is_active = models.BooleanField(default=True)
     requires_voucher = models.BooleanField(default=False)
     total_discount_offered = models.DecimalField(
         max_digits=10, decimal_places=2, default=D(0.00), blank=True
@@ -97,11 +96,11 @@ class Offer(TimeBased):
     # Offer Target
     @property
     def for_product(self):
-        return self.target == "Product"
+        return self.applies_to == "Product"
 
     @property
     def for_order(self):
-        return self.target == "Order"
+        return self.applies_to == "Order"
 
     # def save(self, *args, **kwargs):
     #     super().save(*args, **kwargs)
