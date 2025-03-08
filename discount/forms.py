@@ -22,7 +22,7 @@ class VoucherModelForm(CustomBaseModelForm):
         if current_user := self.current_user:
             queryset_1 = self.fields["offer"].queryset
             self.fields["offer"].queryset = queryset_1.intersection(
-                Offer.objects.filter(store__owner=current_user)
+                Offer.active_objects.filter(store__owner=current_user)
             )
 
     class Meta(CustomBaseModelForm.Meta):

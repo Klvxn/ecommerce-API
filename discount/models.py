@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 from decimal import Decimal as D
 
 from django.core.exceptions import ValidationError
-from django.contrib.auth.models import AnonymousUser
 from django.db import models
 
 from catalogue.abstract import TimeBased, Timestamp
@@ -16,38 +15,34 @@ class ActiveOfferManager(models.Manager):
             .filter(
                 valid_from__lte=datetime.now(timezone.utc),
                 valid_to__gt=datetime.now(timezone.utc),
-                # is_active=True,
+                is_active=True,
             )
         )
 
 
 class Offer(TimeBased):
     """
-    Represents a discount offer model. Offers can be applied to products or shipping fees,
-    and can be available to all users, first time buyers or those with voucher code.
+    Represents discount offers applicable to products or orders based on specific conditions.
+    
+    Offers can be linked to stores and may require voucher codes for redemption. 
+    They serve as containers for various promotional campaigns such as seasonal discounts, 
+    flash sales, and special promotions.
     """
 
-    FREE_SHIPPING, PERCENTAGE_DISCOUNT, FIXED_DISCOUNT = (
-        "Free shipping",
-        "Percentage discount",
-        "Fixed discount",
-    )
+    DISCOUNT_TYPE_CHOICES = [
+        # ("Free shipping", "Free shipping"),
+        ("percentage", "A certain percentage off product's price"),
+        ("fixed", "A fixed amount off product's price"),
+    ]
 
-    DISCOUNT_TYPE_CHOICES = (
-        (FREE_SHIPPING, "Free shipping"),
-        (PERCENTAGE_DISCOUNT, "A certain percentage off of a product's price"),
-        (FIXED_DISCOUNT, "A fixed amount off of a product's price"),
-    )
-
-    APPLIES_TO_CHOICES = (
-        # If the offer is being applied to a product or customer's order
-        ("Product", "The offer is applicable to specific products"),  # Product-level offer
-        ("Order", "Applicable to the customer's order "),  # Order-level offer
-    )
+    OFFER_TYPE_CHOICES = [("product", "Product-level offer"), ("order", "Order-level offer")]
+    # Product-level offers apply to specific products or categories and
+    # are automatically applied for eligible products and customers.
+    # Order-level offers apply to the entire order and are applied at checkout.
 
     title = models.CharField(max_length=50)
     store = models.ForeignKey("stores.Store", on_delete=models.SET_NULL, null=True, blank=True)
-    applies_to = models.CharField(max_length=50, choices=APPLIES_TO_CHOICES)
+    offer_type = models.CharField(max_length=50, choices=OFFER_TYPE_CHOICES)
     discount_type = models.CharField(max_length=50, choices=DISCOUNT_TYPE_CHOICES)
     discount_value = models.DecimalField(max_digits=10, decimal_places=2)
     requires_voucher = models.BooleanField(default=False)
@@ -58,7 +53,7 @@ class Offer(TimeBased):
 
     claimed_by = models.ManyToManyField("customers.Customer", blank=True)
 
-    objects = ActiveOfferManager()
+    active_objects = ActiveOfferManager()
 
     class Meta:
         indexes = [
@@ -69,13 +64,6 @@ class Offer(TimeBased):
     def __str__(self):
         return self.title
 
-    # def clean(self):
-    #     if self.for_product and self.is_free_shipping:
-    #         raise ValidationError({"target": "Free shipping can only be applied as a shipping discount"})
-    #     if self.for_order and self.is_free_shipping:
-    #         raise ValidationError({"target": "Free shipping can only be applied as a shipping discount"})
-    #     super().clean()
-
     @property
     def is_expired(self):
         return not (self.valid_from <= datetime.now(timezone.utc) <= self.valid_to)
@@ -83,83 +71,91 @@ class Offer(TimeBased):
     # Offer discount type
     @property
     def is_free_shipping(self):
-        return self.discount_type == self.FREE_SHIPPING
+        return False
+        # return self.discount_type == self.FREE_SHIPPING
 
     @property
     def is_percentage_discount(self):
-        return self.discount_type == self.PERCENTAGE_DISCOUNT
+        return self.discount_type == "percentage"
 
     @property
     def is_fixed_discount(self):
-        return self.discount_type == self.FIXED_DISCOUNT
+        return self.discount_type == "fixed"
 
-    # Offer Target
+    # Offer level
     @property
     def for_product(self):
-        return self.applies_to == "Product"
+        return self.offer_type == "product"
 
     @property
     def for_order(self):
-        return self.applies_to == "Order"
+        return self.offer_type == "order"
 
-    # def save(self, *args, **kwargs):
-    #     super().save(*args, **kwargs)
-        # if self.for_order and self.conditions.eligible_products is not None:
-        #     raise ValidationError("Offers targeted to orders cannot have eligible products")
-        # super().save(*args, **kwargs)
-
+    def claim_offer(self, customer):
+        if customer not in self.claimed_by.all():
+            self.claimed_by.add(customer)
+            
     def apply_discount(self, price):
+        """
+        Applies the discount to the given price, respecting the maximum discount allowed.
+        Updates the total_discount_offered if a discount is actually applied.
+        
+        Returns the final price after discount.
+        """
         if self.is_free_shipping:
-            return D(0.00)
-        elif self.is_percentage_discount:
-            return self.calc_percentage_discount(price)
-        elif self.is_fixed_discount:
-            return self.calc_fixed_discount(price)
-        else:
+            return D("0.00")
+
+        intended_discount = self.discount_amount(price)
+        remaining = self.max_discount_allowed - self.total_discount_offered
+
+        # If there's no remaining discount allowance, return the untouched price
+        if remaining <= 0:
             return price
 
-    def calc_percentage_discount(self, price):
-        amount_off = price * D(self.discount_value / 100)
-        discounted_price = price - round(amount_off, 2)
-        return discounted_price
+        # Cap the discount to what's left under the max discount allowed
+        actual_discount = D(min(intended_discount, remaining))
 
-    def calc_fixed_discount(self, price):
-        return price - self.discount_value
+        if actual_discount > 0:
+            self.update_total_discount(actual_discount)
+        return price - actual_discount
 
     def discount_amount(self, price):
         if self.is_percentage_discount:
             return price * D(self.discount_value / 100)
         elif self.is_fixed_discount:
             return self.discount_value
+        return D("0.0")
 
     def update_total_discount(self, new_amount):
-        self.total_discount_offered += D(new_amount)
-        self.save()
+        self.total_discount_offered = models.F("total_discount_offered") + D(new_amount)
+        self.save(update_fields=["total_discount_offered"])
 
     def satisfies_conditions(self, customer=None, product=None, order=None, voucher=None):
         """
-        Comprehensive method to check if all conditions for an offer are satisfied,
-        including voucher validation when required.
-
-        This method serves as a single source of truth for offer validity by checking:
-        - Basic offer validity (time period, active status)
-        - Customer eligibility
-        - Product/category eligibility (for product-level offers)
-        - Order conditions like minimum order value (for order-level offers)
-        - Store restrictions
-        - Voucher validity and usage limits when required
-
+        Checks if all offer conditions are met for application.
+        
+        Validates offer eligibility based on:
+        - Offer time period and active status
+        - Customer eligibility criteria
+        - Product/category restrictions for product offers
+        - Order value requirements for order offers
+        - Voucher validity when required
+        
         Args:
-            order: Order object, required for order-level offers
-            product: Product object, required for product-level offers
-            customer: Customer object, required for all checks
-            voucher: Voucher object, required if the offer requires a voucher
-
+            customer: Customer applying the offer
+            product: Product for product-level offers
+            order: Order for order-level offers
+            voucher: Voucher code when required
+            
         Returns:
-            tuple: (bool, str) - (whether conditions are satisfied, reason if not satisfied)
+            tuple: (is_valid, message) - Boolean validity status and reason
         """
         if customer is None:
             return False, "Customer information is required"
+
+        # Check if the offer is currently active and within its valid time period
+        if not self.is_active or self.is_expired:
+            return False, "Offer is not currently active/expired"
 
         if self.for_product and product is None:
             return False, "Product information is required for product-level offers"
@@ -176,147 +172,159 @@ class Offer(TimeBased):
             if voucher.offer_id != self.id:
                 return False, "Invalid voucher for this offer"
 
-            if not voucher.within_usage_limits(customer):
-                return False, "Voucher has reached its maximum usage limit"
-
-            if not voucher.within_validity_period():
-                return False, "Voucher has expired"
-
-            # For order-level offers, check minimum purchase requirement
-            if self.for_order:
-                order_value = order.subtotal()
-                if not voucher.offer.above_min_purchase(order_value):
-                    return (
-                        False,
-                        "Order value is below the minimum purchase requirement for this voucher",
-                    )
-
-        # Check if the offer is currently active and within its valid time period
-        if not self.is_active:
-            return False, "Offer is not currently active"
-
-        if self.is_expired:
-            return False, "Offer has expired"
-
-        # Check store restrictions if applicable
-        if self.store and (
-            (self.for_product and product.store != self.store)
-            or (self.for_order and order.store != self.store)
-        ):
-            return False, "Offer is not valid for this store"
+            valid, msg = voucher.is_valid(customer, order.subtotal())
+            if not valid:
+                return False, msg
 
         conditions = self.conditions.all()
 
-        # If there are no conditions and we passed the basic checks, the offer is valid
+        # If no conditions and we passed the basic checks, offer is valid
         if not conditions.exists():
             return True, "All conditions satisfied"
 
         for condition in conditions:
-            # Check customer group conditions
-            if condition.condition_type == "customer_groups":
-                if condition.eligible_customers == "first_time_buyers":
-                    if not customer.is_authenticated:
-                        return False, "Offer is only valid for registered users"
+            if condition.condition_type == "customer_groups":  # Check customer group conditions
+                return self.valid_for_customer(customer, condition)
 
-                    elif not customer.is_first_time_buyer:
-                        return False, "Offer is only valid for first-time buyers"
+            elif condition.condition_type in ["specific_products", "specific_categories"]:  # Check product-level conditions
+                if not self.for_product:
+                    return False, "Invalid Offer"
+                return self.valid_for_product(product, customer, condition)
 
-            # Check product-specific conditions for product-level offers
-            elif self.for_product:
-                if condition.condition_type == "specific_products":
-                    if not condition.eligible_products.filter(id=product.id).exists():
-                        return False, "Product is not eligible for this offer"
-
-                elif condition.condition_type == "specific_categories":
-                    if not condition.eligible_categories.filter(
-                        id=product.category.id
-                    ).exists():
-                        return False, "Product category is not eligible for this offer"
-
-            # Check order-level conditions
-            elif self.for_order:
-                if condition.condition_type == "min_order_value":
-                    if order.subtotal() < condition.min_order_value:
-                        return (
-                            False,
-                            f"Order value must be at least {condition.min_order_value}",
-                        )
+            elif condition.condition_type == "min_order_value":  # Check order-level conditions
+                if not self.for_order:
+                    return False, "Invalid Offer"
+                return self.valid_for_order(order, condition)
 
         return True, "All conditions satisfied"
 
-    def valid_for_customer(self, customer):
+    def valid_for_customer(self, customer, condition=None):
         """
-        Checks if the offer is valid for the given customer based on customer group conditions.
+        Validates if the offer is applicable to a specific customer based on customer group conditions.
+        
+        Args:
+            customer: The customer to check eligibility for
+            condition: Optional specific condition to check against
+            
+        Returns:
+            If condition is provided: tuple (bool, str) - validity status and reason
+            Otherwise: bool indicating if the customer meets conditions
         """
-        cust_group_cond = self.conditions.filter(condition_type="customer_groups").first()
+        if condition:
+            if condition.eligible_customers == "first_time_buyers":
+                if not customer.is_authenticated:
+                    return False, "Offer is only valid for registered users"
 
-        # If no customer group condition exists, the offer is valid for all customers
-        if not cust_group_cond:
-            return True
+                elif not customer.is_first_time_buyer:
+                    return False, "Offer is only valid for first-time buyers"
 
-        eligible_customers = cust_group_cond.eligible_customers
+        else:
+            customer_conditions = self.conditions.filter(condition_type="customer_groups").first()
 
-        # If eligible for all customers, or customer is a first-time buyer when that's required
-        if eligible_customers == "all_customers":
-            return True
-
-        if eligible_customers == "first_time_buyers":
-            if customer.is_authenticated and customer.is_first_time_buyer:
+            # If no customer group condition exists, the offer is valid for all customers
+            if not customer_conditions:
                 return True
 
-        return False
+            eligible_customers = customer_conditions.eligible_customers
+            if eligible_customers == "all_customers":
+                return True
 
-    def valid_for_product(self, product, customer):
+            elif eligible_customers == "first_time_buyers":
+                if customer.is_authenticated and customer.is_first_time_buyer:
+                    return True
+
+            return False
+
+    def valid_for_product(self, product, customer, condition=None):
         """
-        Checks if the offer is valid for the given product based on product and category conditions.
+        Checks if the offer is valid for the given product based on product and category eligibility.
+        
+        Args:
+            product: The product to validate against offer conditions
+            customer: The customer making the purchase
+            condition: Optional specific condition to check against
+            
+        Returns:
+            If condition is provided: tuple (bool, str) - validity status and reason
+            Otherwise: bool indicating if the product meets conditions
         """
         # First check if the offer is valid for the customer
         if not self.valid_for_customer(customer):
             return False
 
-        condition_for_product = self.conditions.filter(
-            condition_type="specific_products"
-        ).first()
-        condition_for_category = self.conditions.filter(
-            condition_type="specific_categories"
-        ).first()
+        if condition:         
+            if condition.condition_type == "specific_products":
+                if not condition.eligible_products.filter(id=product.id).exists():
+                    return False, "Product is not eligible for this offer"
 
-        # If no product or category conditions exist, the offer is valid for all products
-        if not condition_for_product and not condition_for_category:
-            return True
+            elif condition.condition_type == "specific_categories":
+                if not condition.eligible_categories.filter(
+                    id=product.category.id
+                ).exists():
+                    return False, "Product category is not eligible for this offer"
 
-        # Check product eligibility if a product condition exists
-        product_eligible = False
-        if condition_for_product:
-            product_eligible = product in condition_for_product.eligible_products.all()
+        else:
+            product_condition = self.conditions.filter(condition_type="specific_products").first()
+            category_condition = self.conditions.filter(condition_type="specific_categories").first()
 
-        # Check category eligibility if a category condition exists
-        category_eligible = False
-        if condition_for_category:
-            category_eligible = (
-                product.category in condition_for_category.eligible_categories.all()
-            )
+            # If no product or category conditions exist, the offer is valid for all products
+            if not product_condition and not category_condition:
+                return True
 
-        return product_eligible or category_eligible
+            # Check product eligibility if a product condition exists
+            product_eligible = False
+            if product_condition:
+                product_eligible = product in product_condition.eligible_products.all()
 
-    def valid_for_order(self, order):
+            # Check category eligibility if a category condition exists
+            category_eligible = False
+            if category_condition:
+                category_eligible = product.category in category_condition.eligible_categories.all()
+
+            return product_eligible or category_eligible
+
+    def valid_for_order(self, order, condition=None):
         """
-        Checks if the offer is valid for the given order based on minimum order value conditions.
+        Checks if the offer is valid for the given order based on minimum order value.
+        
+        Args:
+            order: The order to validate against the offer conditions
+            condition: Optional specific condition to check against
+            
+        Returns:
+            If condition is provided: tuple (bool, str) - validity status and reason
+            Otherwise: bool indicating if the order meets all conditions
         """
-        # First check if the offer is valid for the customer
         if not self.valid_for_customer(order.customer):
             return False
 
-        mov_condition = self.conditions.filter(condition_type="min_order_value").first()
+        if condition:
+            if order.subtotal() < condition.min_order_value:
+                return (
+                    False,
+                    f"Order value must be more than minimum spend: {condition.min_order_value}",
+                )
 
-        # If no minimum order value condition exists, the offer is valid for all order values
-        if not mov_condition:
-            return True
+        else:
+            mov_condition = self.conditions.filter(condition_type="min_order_value").first()
 
-        return order.subtotal() >= mov_condition.min_order_value
+            # If no minimum order value condition exists, offer is valid for all order values
+            if not mov_condition:
+                return True
+            return order.subtotal() >= mov_condition.min_order_value
 
 
 class OfferCondition(Timestamp):
+    """
+    Defines eligibility criteria for an offer that determine when it can be applied.
+    
+    Each offer can have multiple conditions related to:
+    - Product eligibility (specific products or categories)
+    - Customer segments (like first-time buyers)
+    - Order requirements (minimum order value)
+    
+    The offer is only applied when all associated conditions are satisfied.
+    """
     CONDITIONS = [
         ("specific_products", "Specific Products"),
         ("specific_categories", "Specific Categories"),
@@ -335,7 +343,7 @@ class OfferCondition(Timestamp):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Specify the minimum order amount required for this offer to be applicable",
+        help_text="Specify the minimum spend required for the offer to be applicable",
     )
     eligible_customers = models.CharField(
         max_length=20, choices=CUSTOMER_GROUPS, null=True, blank=True
@@ -349,36 +357,85 @@ class OfferCondition(Timestamp):
     def __str__(self):
         return f"Conditions for {self.offer}"
 
-    def above_min_purchase(self, order_value=0):
-        if order_value and self.min_order_value is not None:
+    def save(self, *args, **kwargs):
+        if self.offer.for_product and self.condition_type not in ["specific_products", "specific_categories"]:
+            raise ValueError(f"Condition type {self.condition_type} is not valid for product-level offers.")
+        elif self.offer.for_order and self.condition_type != "min_order_value":
+            raise ValueError(f"Condition type {self.condition_type} is not valid for order-level offers.")
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        """
+        Validate that only the appropriate fields are set for a given condition_type,
+        and that required fields for each type are populated.
+        """
+        super().clean()
+        errors = {}
+
+        # Required fields mapping based on condition_type
+        required_fields = {
+            "specific_products": ["eligible_products"],
+            "specific_categories": ["eligible_categories"],
+            "customer_groups": ["eligible_customers"],
+            "min_order_value": ["min_order_value"],
+        }
+
+        # Check that required fields are filled for current condition_type
+        for field in required_fields.get(self.condition_type, []):
+            if field == "eligible_products" and not self.eligible_products.exists():
+                errors[field] = f"You must select at least one product for '{self.condition_type}'"
+            elif field == "eligible_categories" and not self.eligible_categories.exists():
+                errors[field] = f"You must select at least one category for '{self.condition_type}'"
+            elif field == "eligible_customers" and not self.eligible_customers:
+                errors[field] = f"You must select a customer group for '{self.condition_type}'"
+            elif field == "min_order_value" and self.min_order_value is None:
+                errors[field] = f"You must specify a minimum order value for '{self.condition_type}'"
+
+        # Reverse check: any fields incorrectly populated based on condition_type
+        if self.condition_type != "specific_products" and self.eligible_products.exists():
+            errors["eligible_products"] = f"Products should only be used with '{self.condition_type}'"
+        if self.condition_type != "specific_categories" and self.eligible_categories.exists():
+            errors["eligible_categories"] = f"Categories should only be used with '{self.condition_type}'"
+        if self.condition_type != "customer_groups" and self.eligible_customers:
+            errors["eligible_customers"] = f"Customer group should only be set for '{self.condition_type}'"
+        if self.condition_type != "min_order_value" and self.min_order_value is not None:
+            errors["min_order_value"] = f"Minimum order value should only be set for '{self.condition_type}'"
+
+        if errors:
+            raise ValidationError(errors)
+
+    def above_minimum_purchase(self, order_value=0):
+        if self.min_order_value and order_value:
             return order_value >= self.min_order_value
         return True
 
 
 class Voucher(TimeBased):
     """
-    Vouchers are tied to offers with different usage types
+    Represents a discount code that customers can apply during checkout.
+    
+    Vouchers are linked to specific offers and control how many times they can be used.
+    They support different usage patterns (single-use, multiple-use, once per customer)
+    and track redemption history through the RedeemedVoucher model.
     """
 
-    SINGLE, MULTIPLE, ONCE_PER_CUSTOMER = "single", "multiple", "once per customer"
-
-    VOUCHER_USAGE = (
-        (SINGLE, "Can only be used once"),
-        (MULTIPLE, "Can be used multiple number of times"),
-        (ONCE_PER_CUSTOMER, "Can be used once for every customer"),
-    )
+    VOUCHER_USAGE = [
+        ("single",   "Single use"),
+        ("multiple", "Multiple use"),
+        ("once_per_customer", "Once for every customer"),
+    ]
 
     name = models.CharField(max_length=255)
     description = models.TextField()
     code = models.CharField(max_length=50, unique=True, db_index=True)
     offer = models.ForeignKey(Offer, on_delete=models.CASCADE)
     usage_type = models.CharField(
-        max_length=50, choices=VOUCHER_USAGE, default=ONCE_PER_CUSTOMER
+        max_length=50, choices=VOUCHER_USAGE, default="single"
     )
     max_usage_limit = models.PositiveIntegerField()
     num_of_usage = models.PositiveIntegerField(default=0, blank=True)
 
-    objects = ActiveOfferManager()
+    active_objects = ActiveOfferManager()
 
     class Meta:
         indexes = [
@@ -389,6 +446,18 @@ class Voucher(TimeBased):
     def __str__(self):
         return self.name
 
+    @property
+    def single_use(self):
+        return self.usage_type == "single"
+
+    @property
+    def multiple_use(self):
+        return self.usage_type == "multiple"
+
+    @property
+    def per_customer(self):
+        return self.usage_type == "once_per_customer"
+
     def save(self, *args, **kwargs):
         self.code = self.code.upper()
         creating = self._state.adding
@@ -398,16 +467,16 @@ class Voucher(TimeBased):
             self.offer.save(update_fields=["requires_voucher"])
 
     def update_usage_count(self):
-        self.num_of_usage += 1
-        self.save()
+        self.num_of_usage = models.F("num_of_usage") + 1
+        self.save(update_fields=["num_of_usage"])
 
     def within_usage_limits(self, customer=None):
         if self.num_of_usage >= self.max_usage_limit:
             return False
-        if self.usage_type == self.SINGLE and self.num_of_usage > 0:
+        if self.single_use and self.num_of_usage > 0:
             return False
-        if self.usage_type == self.ONCE_PER_CUSTOMER:
-            if customer is None or isinstance(customer, AnonymousUser):
+        if self.per_customer:
+            if customer is None or not hasattr(customer, "is_authenticated"):
                 return False
             return not RedeemedVoucher.objects.filter(voucher=self, customer=customer).exists()
         return True
@@ -425,11 +494,7 @@ class Voucher(TimeBased):
             return False, "Voucher offer has expired"
         if order_value and not self.offer.above_min_purchase(order_value):
             return False, "Your order is below the required minimum purchase"
-        return (
-            self.within_usage_limits(customer)
-            and self.offer.above_min_purchase(order_value)
-            and self.within_validity_period()
-        ), "Voucher is valid"
+        return True, "Voucher is valid"
 
     def redeem(self, customer, order_value):
         valid, _ = self.is_valid(customer, order_value)
