@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal as D
 
 import magic
 from django.contrib.auth import get_user_model
@@ -10,7 +11,7 @@ from customers.models import get_sentinel_user
 from discount.models import Offer
 from stores.models import Store
 
-from .abstract import Timestamp
+from .abstract import BaseModel
 
 # Create your models here.
 User = get_user_model()
@@ -34,7 +35,7 @@ class Category(models.Model):
         return super().save(*args, **kwargs)
 
 
-class Product(Timestamp):
+class Product(BaseModel):
     name = models.CharField(max_length=255, unique=True, db_index=True)
     category = models.ForeignKey(Category, on_delete=models.DO_NOTHING)
     description = models.TextField()
@@ -68,11 +69,11 @@ class Product(Timestamp):
         self.total_stock_level = sum(variant.stock_level for variant in variants)
         self.total_sold = sum(variant.quantity_sold for variant in variants)
         self.is_available = self.total_stock_level > 0
-        self.save()
+        self.save(update_fields=["total_stock_level", "total_sold", "is_available"])
 
     def update_rating(self):
         self.rating = self.calculate_rating()
-        self.save()
+        self.save(update_fields=["rating"])
 
     def calculate_rating(self):
         results = self.reviews.aggregate(sum=models.Sum("rating"), count=models.Count("id"))
@@ -80,8 +81,10 @@ class Product(Timestamp):
         return rating_sum / reviews_count if reviews_count else None
 
     def get_active_offers(self):
-       # Get all active offers applicable to this product, either directly or through its category.
-        active_offers = Offer.objects.filter(
+        """
+        Get all active offers applicable to this product, either directly or through its category.
+        """
+        return Offer.active_objects.filter(
             models.Q(
                 conditions__condition_type="specific_products",
                 conditions__eligible_products=self,
@@ -90,11 +93,10 @@ class Product(Timestamp):
                 conditions__condition_type="specific_categories",
                 conditions__eligible_categories=self.category,
             ),
-            target="Product",
+            offer_type="Product",
             requires_voucher=False,
-            is_active=True,
         )
-        return active_offers
+        
 
     def find_best_offer(self, customer):
         """
@@ -103,7 +105,6 @@ class Product(Timestamp):
         """
         active_offers = self.get_active_offers()
 
-        # Calculate the actual discount amount for each offer
         offer_discounts = []
         original_price = self.base_price
 
@@ -123,8 +124,6 @@ class Product(Timestamp):
         return None
 
 
-# Common attributes like colour, size, serve as Global attributes
-# as they are reusable across products
 class Attribute(models.Model):
     name = models.CharField(max_length=255, unique=True)
 
@@ -145,17 +144,16 @@ class ProductAttribute(models.Model):
         unique_together = ("product", "name")
 
 
-class ProductVariant(Timestamp):
+class ProductVariant(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
     sku = models.CharField("SKU", max_length=20, unique=True, db_index=True)
     is_default = models.BooleanField(default=False)
     price_adjustment = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=0.0,
+        default=D("0.0"),
         help_text="Amount to add to the product's base price",
     )
-    is_active = models.BooleanField(default=True)
     stock_level = models.PositiveIntegerField()
     quantity_sold = models.PositiveIntegerField(default=0)
 
@@ -165,8 +163,12 @@ class ProductVariant(Timestamp):
         indexes = [models.Index(fields=("product", "is_active"))]
 
     def __str__(self):
-        attriutes = self.attributes.all()
-        variant_desc = " - ".join(f"{attr.attribute.name}: {attr.value}" for attr in attriutes)
+        attributes = self.attributes.all()
+        variant_desc = (
+            " - ".join(f"{attr.attribute.name}: {attr.value}" for attr in attributes)
+            if attributes
+            else "Default"
+        )
         return f"{self.product.name} ({variant_desc})"
 
     @property
@@ -207,9 +209,9 @@ class VariantAttribute(models.Model):
         unique_together = ("variant", "attribute")
 
 
-class ProductMedia(Timestamp):
+class ProductMedia(BaseModel):
     """
-    Handles media files (images/videos) for products with automatic validation
+    Handles media files (images/videos) for products with validation
     """
 
     ALLOWED_IMAGE_TYPES = {
@@ -281,7 +283,7 @@ class ProductMedia(Timestamp):
         return round(self.file.size / (1024 * 1024), 2)
 
 
-class Review(Timestamp):
+class Review(BaseModel):
     class Ratings(models.IntegerChoices):
         VERY_BAD = 1, "Very Bad"
         UNSATISFIED = 2, "Unsatisfied"

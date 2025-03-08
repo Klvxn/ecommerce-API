@@ -150,7 +150,7 @@ class Cart:
         """
         voucher_code = voucher_code.strip().upper()
         try:
-            voucher = Voucher.objects.get(code=voucher_code)
+            voucher = Voucher.active_objects.get(code=voucher_code)
             valid, msg = voucher.is_valid(self.customer, self.subtotal())
             if not valid:
                 return False, msg
@@ -173,7 +173,7 @@ class Cart:
                 "id": voucher.id,
                 "code": voucher_code,
                 "offer": voucher.offer.title,
-                "applies_to": voucher.offer.applies_to,
+                "offer_type": voucher.offer.offer_type,
                 "discount_type": voucher.offer.discount_type,
             }
             self._apply_voucher_discount_to_items()

@@ -106,10 +106,10 @@ class ProductListView(GenericAPIView, LimitOffsetPagination):
             page = self.paginate_queryset(products.filter(category__slug=slug))
 
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = self.get_serializer(page, many=True, context={"request": request})
             return self.get_paginated_response(serializer.data)
 
-        serializer = self.get_serializer(products, many=True)
+        serializer = self.get_serializer(products, many=True, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -119,7 +119,7 @@ class ProductInstanceView(GenericAPIView):
     """
 
     http_method_names = ["get"]
-    queryset = Product.objects.all()
+    queryset = Product.active_objects.all()
     permission_classes = [AllowAny]
     serializer_class = ProductInstanceSerializer
 
@@ -249,7 +249,6 @@ class ProductReviewInstance(APIView):
     def put(self, request, product_id, review_id):
         review = self.get_product_review(product_id, review_id)
         serializer = self.get_serializer(instance=review, data=request.data)
-
         if serializer.is_valid(raise_exception=True):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)

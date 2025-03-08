@@ -10,7 +10,22 @@ class Timestamp(models.Model):
         abstract = True
 
 
-class TimeBased(Timestamp):
+class ActiveObjectsManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+
+class BaseModel(Timestamp):
+    is_active = models.BooleanField(default=True)
+
+    objects = models.Manager()
+    active_objects = ActiveObjectsManager()
+
+    class Meta:
+        abstract = True
+
+
+class TimeBased(BaseModel):
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
 

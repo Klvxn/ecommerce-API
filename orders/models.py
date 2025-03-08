@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
-from catalogue.abstract import Timestamp
+from catalogue.abstract import BaseModel
 from catalogue.models import ProductVariant
 from discount.models import Offer
 
@@ -13,7 +13,7 @@ from discount.models import Offer
 User = get_user_model()
 
 
-class Order(Timestamp):
+class Order(BaseModel):
     class OrderStatus(models.TextChoices):
         PAID = "paid"
         AWAITING_PAYMENT = "awaiting_payment"
@@ -147,7 +147,7 @@ class Order(Timestamp):
         )
 
 
-class OrderItem(Timestamp):
+class OrderItem(BaseModel):
     order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
     variant = models.ForeignKey("catalogue.ProductVariant", on_delete=models.CASCADE)
     product = models.ForeignKey("catalogue.Product", on_delete=models.CASCADE)
@@ -196,7 +196,7 @@ class OrderItem(Timestamp):
                 discount_amount, applied_offer = 0, None
 
                 if applied_offer_id := item_data.get("active_offer", {}).get("offer_id"):
-                    applied_offer = Offer.objects.filter(id=applied_offer_id, is_active=True).first()
+                    applied_offer = Offer.active_objects.filter(id=applied_offer_id).first()
 
                     if applied_offer and not applied_offer.is_expired:
                         discount_amount = (original_price - unit_price) * quantity
