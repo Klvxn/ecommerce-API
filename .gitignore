@@ -3,7 +3,11 @@ venv
 __pycache__
 *.pyc
 db.sqlite3
+db.sqlite
 .idea
 ecommerceDB
 .dockerignore
-migrations/
+/vendors/
+assets/
+media/
+
