@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
             name="voucher",
             field=models.ForeignKey(
                 on_delete=django.db.models.deletion.CASCADE,
-                to="catalogue.voucher",
+                to="discount.voucher",
             ),
             preserve_default=False,
         ),
