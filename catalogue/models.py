@@ -93,10 +93,10 @@ class Product(BaseModel):
                 conditions__condition_type="specific_categories",
                 conditions__eligible_categories=self.category,
             ),
-            offer_type="Product",
+            offer_type="product",
             requires_voucher=False,
-        )
-        
+            total_discount_offered__lt=models.F("max_discount_allowed"),
+        ).distinct()
 
     def find_best_offer(self, customer):
         """
@@ -104,7 +104,6 @@ class Product(BaseModel):
         Returns the offer that gives the highest discount.
         """
         active_offers = self.get_active_offers()
-
         offer_discounts = []
         original_price = self.base_price
 
@@ -112,8 +111,7 @@ class Product(BaseModel):
             is_valid, _ = offer.satisfies_conditions(product=self, customer=customer)
 
             if is_valid:
-                discounted_price = offer.apply_discount(original_price)
-                discount_amount = original_price - discounted_price
+                discount_amount = offer.get_discount_amount(original_price)
                 offer_discounts.append((offer, discount_amount))
 
         # Sort by discount amount and get the best offer
@@ -175,7 +173,7 @@ class ProductVariant(BaseModel):
     def actual_price(self):
         return self.product.base_price + self.price_adjustment
 
-    def get_discount_price(self, customer):
+    def _get_discount_price(self, customer):
         # Find and apply best price from the product's offers for the customer 
         product_offer = self.product.find_best_offer(customer)
         if product_offer:
@@ -183,7 +181,7 @@ class ProductVariant(BaseModel):
         return 0
 
     def get_final_price(self, customer=None):
-        discount_price = None if not customer else self.get_discount_price(customer)  
+        discount_price = None if not customer else self._get_discount_price(customer)  
         return discount_price if discount_price else self.actual_price
 
     def clean(self):

@@ -1,6 +1,5 @@
 from rest_framework import serializers
 
-from discount.models import Offer
 from discount.serializers import OfferSerializer
 
 from .models import (
@@ -78,27 +77,58 @@ class ProductListSerializer(serializers.ModelSerializer):
         view_name="store-detail", lookup_field="slug", read_only=True
     )
     media = ProductMediaSerializer(many=True)
-    product_offers = serializers.SerializerMethodField()
+    active_offer = serializers.SerializerMethodField()
     base_price = serializers.SerializerMethodField()
+    discounted_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = "__all__"
-
-    def get_product_offers(self, obj):
-        filtered_offers = Offer.objects.filter(
-            target="Product",
-            is_active=True,
-            conditions__condition_type="specific_products",
-            conditions__eligible_products=obj,
-        )
-        return OfferSerializer(filtered_offers, many=True).data
+        fields = [
+            "id", 
+            "name", 
+            "category", 
+            "store",
+            "description",
+            "is_active",
+            "base_price",
+            "active_offer",
+            "discounted_price",
+            "is_standalone",
+            "media", 
+            "created", 
+            "updated",
+            "total_stock_level",
+            "total_sold"
+        ]
 
     def get_base_price(self, obj):
         if obj.variants.exists():
             variant = obj.variants.order_by("price_adjustment").first()
-            return variant.final_price
+            return variant.actual_price
         return obj.base_price
+
+    def get_active_offer(self, obj):
+        request = self.context["request"]
+        active_offer = obj.find_best_offer(customer=request.user)
+        if active_offer:
+            return OfferSerializer(active_offer).data
+        return None
+
+    def get_discounted_price(self, obj):
+        request = self.context["request"]
+        best_offer = obj.find_best_offer(customer=request.user)
+        if not best_offer:
+            return None
+        discount_amount = best_offer.get_discount_amount(self.get_base_price(obj))
+        return self.get_base_price(obj) - discount_amount
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        discount = data["discounted_price"]
+        base_price = data["base_price"]
+        if discount:
+            data["savings"] = max(base_price - discount, 0)
+        return data
 
 
 class ProductInstanceSerializer(ProductListSerializer):
@@ -113,7 +143,6 @@ class ProductInstanceSerializer(ProductListSerializer):
     class Meta:
         model = Product
         fields = "__all__"
-
 
 
 class SimpleProductSerializer(serializers.ModelSerializer):
