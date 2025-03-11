@@ -1,13 +1,12 @@
 from rest_framework import serializers
 from rest_framework.generics import get_object_or_404
 
-from catalogue.models import Product, ProductVariant
+from catalogue.models import ProductVariant
 
 
 class AddCartItemSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
     variant_sku = serializers.CharField(label="Variant SKU", max_length=20)
-    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
 
     def validate_variant_sku(self, data):
         if not ProductVariant.objects.filter(sku=data).exists():
@@ -31,12 +30,13 @@ class AddCartItemSerializer(serializers.Serializer):
 
 
 class UpdateCartItemSerializer(serializers.Serializer):
-    quantity = serializers.IntegerField(min_value=1)
+    quantity = serializers.IntegerField()
     item_key = serializers.CharField(max_length=50)
 
     def validate_item_key(self, data):
         cart = self.context["cart"]
-        if data not in cart.cart_items:
+        print(data, cart.cart_items.keys())
+        if data not in cart.cart_items.keys():
             raise serializers.ValidationError("Invalid cart item key")
         return data
 

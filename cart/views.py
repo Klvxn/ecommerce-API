@@ -40,7 +40,7 @@ class CartView(GenericAPIView):
                 },
                 status=status.HTTP_200_OK,
             )
-        return Response({"info": "Your cart is empty"}, status=status.HTTP_200_OK)
+        return Response({"message": "Your cart is empty"}, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Add a product to cart",
@@ -84,20 +84,20 @@ class CartView(GenericAPIView):
         return Response({"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT)
 
 
-class CartItemView(APIView):
+class CartItemView(GenericAPIView):
     """
     View to managing cart items.
     """
-
+    serializer_class = UpdateCartItemSerializer
     permission_classes = [AllowAny]
 
     def put(self, request):
         cart = Cart(request)
         serializer = UpdateCartItemSerializer(data=request.data, context={"cart": cart})
         if serializer.is_valid(raise_exception=True):
+
             item_key = serializer.validated_data["item_key"]
             quantity = serializer.validated_data["quantity"]
-
             updated, msg = cart.update(item_key, quantity=quantity)
             return Response({"success": updated, "message": msg}, status=status.HTTP_200_OK) 
 
@@ -107,17 +107,16 @@ class CartItemView(APIView):
         cart = Cart(request)
         serializer = UpdateCartItemSerializer(data=request.data, context={"cart": cart})
         if serializer.is_valid(raise_exception=True):
-            item_key = serializer.validated_data["item_key"]
 
-            if item_key in cart.cart_items.keys():
-                if removed := cart.remove(item_key):
-                    return Response(
-                        {"success": removed, "message": "Item has been removed from cart"},
-                        status=status.HTTP_204_NO_CONTENT,
-                    )
+            item_key = serializer.validated_data["item_key"]
+            if item_key in cart.cart_items.keys() and cart.remove(item_key):
+                return Response(
+                    {"success": True, "message": "Item has been removed from cart"},
+                    status=status.HTTP_204_NO_CONTENT,
+                )
 
             return Response(
-                {"success": removed, "message": "This item is not in your cart"},
+                {"success": False, "message": "This item is not in your cart"},
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
