@@ -14,10 +14,19 @@ class OfferConditionInline(admin.StackedInline):
 
 @admin.register(Offer)
 class OfferAdmin(admin.ModelAdmin):
-    list_display = ["__str__", "store", "discount_type", "is_expired"]
+    list_display = ["__str__", "store", "discount_type", "active_status"]
     readonly_fields = ["store"]
     inlines = [OfferConditionInline]
     form = OfferModelForm
+
+    @admin.display(description="Status")
+    def active_status(self, obj):
+        if not obj.is_expired and obj.is_active:
+            return "Valid, Active"
+        elif not obj.is_expired and not obj.is_active:
+            return"Valid, Not Active"
+        else:
+            return "Expired"
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

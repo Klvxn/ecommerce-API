@@ -7,19 +7,6 @@ from django.db import models
 from catalogue.abstract import TimeBased, Timestamp
 
 
-class ActiveOfferManager(models.Manager):
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(
-                valid_from__lte=datetime.now(timezone.utc),
-                valid_to__gt=datetime.now(timezone.utc),
-                is_active=True,
-            )
-        )
-
-
 class Offer(TimeBased):
     """
     Represents discount offers applicable to products or orders based on specific conditions.
@@ -31,8 +18,8 @@ class Offer(TimeBased):
 
     DISCOUNT_TYPE_CHOICES = [
         # ("Free shipping", "Free shipping"),
-        ("percentage", "A certain percentage off product's price"),
-        ("fixed", "A fixed amount off product's price"),
+        ("percentage", "Percentage discount"),
+        ("fixed", "Fixed-Amount discount"),
     ]
 
     OFFER_TYPE_CHOICES = [("product", "Product-level offer"), ("order", "Order-level offer")]
@@ -53,12 +40,9 @@ class Offer(TimeBased):
 
     claimed_by = models.ManyToManyField("customers.Customer", blank=True)
 
-    active_objects = ActiveOfferManager()
-
-    class Meta:
+    class Meta(TimeBased.Meta):
         indexes = [
             models.Index(fields=["valid_from", "valid_to"]),
-            models.Index(fields=["store"]),
         ]
 
     def __str__(self):
@@ -81,6 +65,14 @@ class Offer(TimeBased):
     @property
     def is_fixed_discount(self):
         return self.discount_type == "fixed"
+    
+    @property
+    def maxed_out(self):
+        return self.total_discount_offered >= self.max_discount_allowed
+    
+    @property
+    def remaining_discount(self):
+        return self.max_discount_allowed - self.total_discount_offered
 
     # Offer level
     @property
@@ -97,38 +89,78 @@ class Offer(TimeBased):
             
     def apply_discount(self, price):
         """
-        Applies the discount to the given price, respecting the maximum discount allowed.
-        Updates the total_discount_offered if a discount is actually applied.
+        Applies the discount to the given price, respecting the maximum discount allowed.        
+        Note: This method updates the total_discount_offered field on the offer so should only
+        be called when the discount is actually applied.
         
+        Args:
+            price: The original price to discount
+    
         Returns the final price after discount.
         """
         if self.is_free_shipping:
             return D("0.00")
 
-        intended_discount = self.discount_amount(price)
-        remaining = self.max_discount_allowed - self.total_discount_offered
-
-        # If there's no remaining discount allowance, return the untouched price
-        if remaining <= 0:
-            return price
-
-        # Cap the discount to what's left under the max discount allowed
-        actual_discount = D(min(intended_discount, remaining))
-
-        if actual_discount > 0:
-            self.update_total_discount(actual_discount)
+        actual_discount = self.get_discount_amount(price)
+    
+        # Only update the counter if we're actually applying a discount
+        # if actual_discount > 0:
+        #     self.update_total_discount(actual_discount)
+            
         return price - actual_discount
 
-    def discount_amount(self, price):
+    def get_discount_amount(self, price, cap=True):
+        """
+        Calculate the discount amount that can be applied to a price,
+        respecting the maximum discount allowed limit.
+        
+        Args:
+            price: The price to calculate discount for
+            cap: Whether to cap the discount at the remaining allowance
+            
+        Returns:
+            Decimal: The actual discount amount that can be applied
+        """
+        # Calculate the raw discount amount based on discount type
         if self.is_percentage_discount:
-            return price * D(self.discount_value / 100)
+            discount = price * D(self.discount_value / 100)
         elif self.is_fixed_discount:
-            return self.discount_value
-        return D("0.0")
+            discount = min(self.discount_value, price)
+        else:
+            return D("0.0")
 
+        # If no allowance remains, no discount can be given
+        if self.remaining_discount < 0:
+            return D("0.0")
+            
+        # Cap the discount at the remaining allowance
+        return min(discount, self.remaining_discount) if cap else discount
+    
     def update_total_discount(self, new_amount):
         self.total_discount_offered = models.F("total_discount_offered") + D(new_amount)
+        # validaton check to make sure total_discount_offered is not more than max limit
         self.save(update_fields=["total_discount_offered"])
+        
+    def refund_discount(self, amount):
+        """
+        Returns a discount amount back to the offer's available allowance.
+        Called when a discounted item is removed from a cart.
+        
+        Args:
+            amount: The discount amount to refund (positive value)
+        """
+        amount = abs(D(amount))
+        
+        # We need to refresh from DB to avoid race conditions with F() expressions
+        refresh_offer = Offer.objects.get(pk=self.pk)
+        current = refresh_offer.total_discount_offered
+        
+        # Ensure we don't go below zero
+        new_total = max(D("0.00"), current - amount)
+        self.total_discount_offered = new_total
+        self.save(update_fields=["total_discount_offered"])
+        
+        return self.total_discount_offered
 
     def satisfies_conditions(self, customer=None, product=None, order=None, voucher=None):
         """
@@ -182,21 +214,36 @@ class Offer(TimeBased):
         if not conditions.exists():
             return True, "All conditions satisfied"
 
+        context = {"customer": customer, "product": product, "order": order}
+
         for condition in conditions:
-            if condition.condition_type == "customer_groups":  # Check customer group conditions
-                return self.valid_for_customer(customer, condition)
-
-            elif condition.condition_type in ["specific_products", "specific_categories"]:  # Check product-level conditions
-                if not self.for_product:
-                    return False, "Invalid Offer"
-                return self.valid_for_product(product, customer, condition)
-
-            elif condition.condition_type == "min_order_value":  # Check order-level conditions
-                if not self.for_order:
-                    return False, "Invalid Offer"
-                return self.valid_for_order(order, condition)
+            return self._check_condition(condition, context)
+            # return valid, msg
 
         return True, "All conditions satisfied"
+
+    def _check_condition(self, condition, context):
+        customer = context["customer"]
+        if condition.condition_type == "customer_groups":  # Check customer group conditions
+            return self.valid_for_customer(customer, condition)
+
+        elif condition.condition_type in ["specific_products", "specific_categories"]:  # Check product-level conditions
+            product = context["product"]
+            if not self.for_product:
+                # This is NOT redundant. It validates that product-specific and categories-specific
+                # conditions are only used with product-level offers
+                return False, "Invalid Offer"
+            return self.valid_for_product(product, customer, condition)
+
+        elif condition.condition_type == "min_order_value":  # Check order-level conditions
+            order = context["order"]
+            if not self.for_order:
+                # It validates that min_order_value conditions are only used
+                # with order-level offers
+                return False, "Invalid Offer"
+            return self.valid_for_order(order, condition)
+
+        return False, "Invalid Offer"
 
     def valid_for_customer(self, customer, condition=None):
         """
@@ -217,7 +264,7 @@ class Offer(TimeBased):
 
                 elif not customer.is_first_time_buyer:
                     return False, "Offer is only valid for first-time buyers"
-
+            return True, "Valid"
         else:
             customer_conditions = self.conditions.filter(condition_type="customer_groups").first()
 
@@ -262,7 +309,7 @@ class Offer(TimeBased):
                     id=product.category.id
                 ).exists():
                     return False, "Product category is not eligible for this offer"
-
+            return True, "Valid"
         else:
             product_condition = self.conditions.filter(condition_type="specific_products").first()
             category_condition = self.conditions.filter(condition_type="specific_categories").first()
@@ -304,7 +351,7 @@ class Offer(TimeBased):
                     False,
                     f"Order value must be more than minimum spend: {condition.min_order_value}",
                 )
-
+            return True, "Valid"
         else:
             mov_condition = self.conditions.filter(condition_type="min_order_value").first()
 
@@ -365,45 +412,60 @@ class OfferCondition(Timestamp):
         super().save(*args, **kwargs)
 
     def clean(self):
-        """
-        Validate that only the appropriate fields are set for a given condition_type,
-        and that required fields for each type are populated.
-        """
-        super().clean()
-        errors = {}
-
-        # Required fields mapping based on condition_type
-        required_fields = {
-            "specific_products": ["eligible_products"],
-            "specific_categories": ["eligible_categories"],
-            "customer_groups": ["eligible_customers"],
-            "min_order_value": ["min_order_value"],
-        }
-
-        # Check that required fields are filled for current condition_type
-        for field in required_fields.get(self.condition_type, []):
-            if field == "eligible_products" and not self.eligible_products.exists():
-                errors[field] = f"You must select at least one product for '{self.condition_type}'"
-            elif field == "eligible_categories" and not self.eligible_categories.exists():
-                errors[field] = f"You must select at least one category for '{self.condition_type}'"
-            elif field == "eligible_customers" and not self.eligible_customers:
-                errors[field] = f"You must select a customer group for '{self.condition_type}'"
-            elif field == "min_order_value" and self.min_order_value is None:
-                errors[field] = f"You must specify a minimum order value for '{self.condition_type}'"
-
-        # Reverse check: any fields incorrectly populated based on condition_type
-        if self.condition_type != "specific_products" and self.eligible_products.exists():
-            errors["eligible_products"] = f"Products should only be used with '{self.condition_type}'"
-        if self.condition_type != "specific_categories" and self.eligible_categories.exists():
-            errors["eligible_categories"] = f"Categories should only be used with '{self.condition_type}'"
-        if self.condition_type != "customer_groups" and self.eligible_customers:
-            errors["eligible_customers"] = f"Customer group should only be set for '{self.condition_type}'"
-        if self.condition_type != "min_order_value" and self.min_order_value is not None:
-            errors["min_order_value"] = f"Minimum order value should only be set for '{self.condition_type}'"
-
-        if errors:
-            raise ValidationError(errors)
-
+            """
+            Validate that only the appropriate fields are set for a given condition_type,
+            and that required fields for each type are populated.
+            """
+            super().clean()
+            errors = {}
+        
+            # Required fields mapping based on condition_type
+            required_fields = {
+                "specific_products": ["eligible_products"],
+                "specific_categories": ["eligible_categories"],
+                "customer_groups": ["eligible_customers"],
+                "min_order_value": ["min_order_value"],
+            }
+        
+            # Check that required fields are filled for current condition_type
+            for field in required_fields.get(self.condition_type, []):
+                # if field == "eligible_products":
+                #     # For M2M fields, check differently depending on whether instance exists
+                #     if self.pk:
+                #         if not self.eligible_products.exists():
+                #             errors[field] = f"You must select at least one product for '{self.condition_type}'"
+                #     elif not hasattr(self, '_eligible_products_cache') or not self._eligible_products_cache:
+                #         errors[field] = f"You must select at least one product for '{self.condition_type}'"
+                        
+                # elif field == "eligible_categories":
+                #     # For M2M fields, check differently depending on whether instance exists
+                #     if self.pk:
+                #         if not self.eligible_categories.exists():
+                #             errors[field] = f"You must select at least one category for '{self.condition_type}'"
+                #     elif not hasattr(self, '_eligible_categories_cache') or not self._eligible_categories_cache:
+                #         errors[field] = f"You must select at least one category for '{self.condition_type}'"
+                        
+                if field == "eligible_customers" and not self.eligible_customers:
+                    errors[field] = f"You must select a customer group for '{self.condition_type}'"
+                    
+                elif field == "min_order_value" and self.min_order_value is None:
+                    errors[field] = f"You must specify a minimum order value for '{self.condition_type}'"
+        
+            # For reverse checks on M2M fields, only check if instance exists
+            if self.pk:
+                if self.condition_type != "specific_products" and self.eligible_products.exists():
+                    errors["eligible_products"] = f"Products should only be used with 'specific_products' condition type"
+                if self.condition_type != "specific_categories" and self.eligible_categories.exists():
+                    errors["eligible_categories"] = f"Categories should only be used with 'specific_categories' condition type"
+        
+            # Regular fields can always be checked
+            if self.condition_type != "customer_groups" and self.eligible_customers:
+                errors["eligible_customers"] = f"Customer group should only be set for 'customer_groups' condition type"
+            if self.condition_type != "min_order_value" and self.min_order_value is not None:
+                errors["min_order_value"] = f"Minimum order value should only be set for 'min_order_value' condition type"
+        
+            if errors:
+                raise ValidationError(errors)
     def above_minimum_purchase(self, order_value=0):
         if self.min_order_value and order_value:
             return order_value >= self.min_order_value
@@ -435,12 +497,11 @@ class Voucher(TimeBased):
     max_usage_limit = models.PositiveIntegerField()
     num_of_usage = models.PositiveIntegerField(default=0, blank=True)
 
-    active_objects = ActiveOfferManager()
-
-    class Meta:
+    class Meta(TimeBased.Meta):
         indexes = [
-            models.Index(fields=["code", "valid_to"]),
-            models.Index(fields=["offer", "usage_type"]),
+            models.Index(fields=["code" ]),
+            models.Index(fields=["valid_to", "valid_from"]),
+            models.Index(fields=["offer"]),
         ]
 
     def __str__(self):
