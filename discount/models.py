@@ -111,7 +111,7 @@ class Offer(TimeBased):
 
     def get_discount_amount(self, price, cap=True):
         """
-        Calculate the discount amount that can be applied to a price,
+        Calculate the per unit discount that can be applied to a price,
         respecting the maximum discount allowed limit.
         
         Args:
@@ -136,10 +136,11 @@ class Offer(TimeBased):
         # Cap the discount at the remaining allowance
         return min(discount, self.remaining_discount) if cap else discount
     
-    def update_total_discount(self, new_amount):
-        self.total_discount_offered = models.F("total_discount_offered") + D(new_amount)
+    def update_total_discount(self, amount):
+        self.total_discount_offered = models.F("total_discount_offered") + D(amount)
         # validaton check to make sure total_discount_offered is not more than max limit
         self.save(update_fields=["total_discount_offered"])
+        self.refresh_from_db(fields=["total_discount_offered"])
         
     def refund_discount(self, amount):
         """
@@ -148,19 +149,10 @@ class Offer(TimeBased):
         
         Args:
             amount: The discount amount to refund (positive value)
-        """
-        amount = abs(D(amount))
-        
-        # We need to refresh from DB to avoid race conditions with F() expressions
-        refresh_offer = Offer.objects.get(pk=self.pk)
-        current = refresh_offer.total_discount_offered
-        
-        # Ensure we don't go below zero
-        new_total = max(D("0.00"), current - amount)
-        self.total_discount_offered = new_total
+        """       
+        self.total_discount_offered = models.F("total_discount_offered") - D(amount)
         self.save(update_fields=["total_discount_offered"])
-        
-        return self.total_discount_offered
+        self.refresh_from_db(fields=["total_discount_offered"])
 
     def satisfies_conditions(self, customer=None, product=None, order=None, voucher=None):
         """
