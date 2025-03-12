@@ -29,6 +29,19 @@ class Cart:
         """
         self.customer = request.user
         self.session = request.session
+        
+        if "cart" in self.session:
+            cart_data = self.session["cart"]
+            
+            if "last_activity" in cart_data:
+                last_activity = dateparse.parse_datetime(cart_data["last_activity"])
+                inactivity_threshold = timezone.now() - timezone.timedelta(minutes=45)
+                
+                if last_activity < inactivity_threshold:
+                    # This approach is not ideal because it won't catch cases of sessions never getting 
+                    # loaded again. That's where a cron job or a scheduled task comes in.
+                    self.clear()
+
         self.session.set_expiry(1800)
 
         cart_data = self.session.setdefault(
@@ -36,7 +49,7 @@ class Cart:
         )
         self.meta = cart_data
         self.cart_items = cart_data["cart_items"]
-
+        
         self.refresh(force=force_refresh)
 
     def __iter__(self):
@@ -69,7 +82,7 @@ class Cart:
                 "quantity": 0,
                 "offer_applied": offer_applied,
                 "shipping": str(0),
-                "item_type": item_type,
+                "type": item_type,
             },
         )
         item["quantity"] = quantity
@@ -103,62 +116,15 @@ class Cart:
         original_price = D(item["original_price"])
         
         if "active_offer" in item and quantity_diff != 0:
+            
             try:
                 offer = Offer.active_objects.get(id=item["active_offer"]["offer_id"])
-                discount_amount = offer.get_discount_amount(original_price, cap=False)
-                
-                if quantity_diff < 0:  # Decreasing quantity, refund discount
 
-                    # Get the actual discount amount per unit directly from the offer
-                    # This gives us the true per-unit discount regardless of caps
-                    per_unit_discount = offer.get_discount_amount(original_price, cap=False)
-                    refund_amount = per_unit_discount * abs(quantity_diff)
-                    
-                    # Cap refund amount to what's actually stored
-                    current_discount = D(item["active_offer"]["discount_amount"])
-                    refund_amount = min(refund_amount, current_discount)
-                    
-                    offer.refund_discount(refund_amount)
-                    remaining_discount = current_discount - refund_amount
-                    per_unit_discount = remaining_discount / new_quantity
-                    item["price"] = str(original_price - per_unit_discount)
+                # Refund the previous discount amount and reapply discount using new quantity
+                prev_discount_amount = item["active_offer"]["discount_amount"]
+                offer.refund_discount(prev_discount_amount)
+                self._apply_product_offer(item, offer, original_price, new_quantity)
 
-                    # Update the stored discount amount
-                    item["active_offer"]["discount_amount"] = str(remaining_discount)
-                    
-                    if "ideal_discount" in item["active_offer"]:
-                        ideal_per_unit = offer.get_discount_amount(original_price, cap=False)
-                        new_ideal_discount = ideal_per_unit * new_quantity
-                        item["active_offer"]["ideal_discount"] = str(new_ideal_discount)
-                        item["active_offer"]["partial"] = remaining_discount < new_ideal_discount
-                       
-                else:  # Increasing quantity, update discount
-
-                    # Calculate both ideal and actual additional discount
-                    uncapped_discount = discount_amount * quantity_diff
-                    actual_discount = min(uncapped_discount, offer.remaining_discount) # applied discount
-                    
-                    if actual_discount > 0:
-                        # Update the stored discount amount
-                        current_discount = D(item["active_offer"]["discount_amount"])
-                        new_total_discount = current_discount + actual_discount
-                        item["active_offer"]["discount_amount"] = str(new_total_discount)
-                        
-                        # Recalculate price based on actual discount applied
-                        if actual_discount < uncapped_discount:
-                            prev_ideal_discount = D(item["active_offer"].get("ideal_discount", "0"))
-                            item["active_offer"]["ideal_discount"] = str(prev_ideal_discount + uncapped_discount)
-                        
-                            # This is a partial discount - adjust the price accordingly
-                            per_unit_discount = new_total_discount / new_quantity
-                            new_price = D(item["original_price"]) - per_unit_discount
-                            item["price"] = str(new_price)
-                            
-                            # Track if this is a partial discount
-                            item["active_offer"]["partial"] = actual_discount < uncapped_discount  # Should be true
-                            
-                        offer.update_total_discount(actual_discount)
-                    
             except Offer.DoesNotExist:
                 # If offer no longer exists, remove it from the item
                 del item["active_offer"]
@@ -209,6 +175,7 @@ class Cart:
         return self.save()
 
     def save(self):
+        self.meta["last_activity"] = timezone.now().isoformat()
         self.session.modified = True
         return True
 
@@ -350,34 +317,36 @@ class Cart:
             item (dict): The cart item dictionary.
             offer (Offer): The offer object.
             original_price (Decimal): The original price of the product.
-            quantity (int): The quantity of the product being added.
+            quantity (int): The quantity of the item(product)being added.
         """
         # Get the actual discount amount that can be applied
-        discount_amount = offer.get_discount_amount(original_price, False)
-        total_discount_amount = discount_amount * quantity
+        per_unit = offer.get_discount_amount(original_price, False)
+        discount_amount = per_unit * quantity
 
         item["active_offer"] = {
             "offer_id": offer.id,
-            "discount_amount": str(total_discount_amount),
+            "discount_amount": str(discount_amount),
             "discount_type": offer.discount_type,
             "is_valid": (offer.is_active and not offer.is_expired),
         }
 
-        capped = min(total_discount_amount, offer.remaining_discount)
-
-        if capped < total_discount_amount:
-            discount_per_unit = capped / quantity
-            adjusted_percentage = (discount_per_unit / original_price) * 100
+        capped = min(discount_amount, offer.remaining_discount)
+        if capped < discount_amount:
+            per_unit = capped / quantity
+            adjusted_percentage = (per_unit / original_price) * 100
             offer.update_total_discount(capped)
-            item["price"] = str(original_price - discount_per_unit)
+            item["price"] = str(original_price - per_unit)
             item["active_offer"]["partial"] = True
             item["active_offer"]["discount_amount"] = str(capped)
-            item["active_offer"]["ideal_discount"] = str(total_discount_amount)
-            item["active_offer"]["adjusted_discount_rate"] = str(discount_per_unit)
+            item["active_offer"]["ideal_discount"] = str(discount_amount)
+            item["active_offer"]["adjusted_discount_rate"] = str(per_unit)
             item["active_offer"]["adjusted_percentage"] = str(adjusted_percentage)
         else:
-            offer.update_total_discount(total_discount_amount)
-
+            # Full discount can be applied
+            per_unit = discount_amount / quantity
+            item["price"] = str(original_price - per_unit)
+            item["active_offer"]["just_applied"] = True
+            offer.update_total_discount(discount_amount)
 
     def needs_refresh(self):
         last_refresh = dateparse.parse_datetime(self.meta.get("last_refreshed"))
@@ -432,9 +401,14 @@ class Cart:
         return False
 
     def _update_item_price(self, item, variant, current_price):
+        # Skip price update if offer was just applied
+        if "active_offer" in item and item["active_offer"].get("just_applied"):
+            item["active_offer"].pop("just_applied", None)
+            return False
+        
         # If the item already has a valid active offer that's maxed out,
         # we need to preserve it rather than using the variant's current price
-        has_valid_maxed_offer = False
+        has_maxed_offer = False
         if item["offer_applied"] and "active_offer" in item and item["active_offer"].get("is_valid"):
             try:
                 offer_id = item["active_offer"].get("offer_id")
@@ -443,17 +417,18 @@ class Cart:
                 if offer.maxed_out:
                     # This is a valid but maxed out offer - preserve it
                     item["active_offer"]["is_maxed_out"] = True
-                    has_valid_maxed_offer = True
+                    has_maxed_offer = True
             except Offer.DoesNotExist:
                 pass
         
         # If we found a valid maxed offer, don't update price
-        if has_valid_maxed_offer:
+        if has_maxed_offer:
             return False
             
         # Otherwise proceed with normal price update
         if item["price"] == str(current_price):
             return False
+        print("Updating item price: ", item["price"], current_price)
     
         item.update({
             "price": str(current_price),
@@ -468,13 +443,13 @@ class Cart:
                 del item["active_offer"]
             return False
         
-        # If an item was added to cart without an offer initially applied,
-        # don't bother applying a valid offer to the item
-        
         if "active_offer" in item:
             exisiting_offer_id = item["active_offer"].get("offer_id")
             try:
                 existing_offer = Offer.active_objects.get(id=exisiting_offer_id)
+
+                # Condition should always be true because active_objects manager filters valid and active
+                # offers by default
                 if existing_offer.is_active and not existing_offer.is_expired:
                     if not item["active_offer"].get("is_valid"):
                         item["active_offer"]["is_valid"] = True
@@ -483,7 +458,7 @@ class Cart:
                 
                 # Offer is expired and in-active, refund the discount amount and delete offer from the item
                 if discount_amount := item["active_offer"].get("discount_amount"):
-                    existing_offer.refund_discount(D(discount_amount))
+                    existing_offer.refund_discount(discount_amount)
                 del item["active_offer"]
                 item["offer_applied"] = False
                 

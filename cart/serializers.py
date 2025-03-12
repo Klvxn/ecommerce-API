@@ -35,7 +35,6 @@ class UpdateCartItemSerializer(serializers.Serializer):
 
     def validate_item_key(self, data):
         cart = self.context["cart"]
-        print(data, cart.cart_items.keys())
         if data not in cart.cart_items.keys():
             raise serializers.ValidationError("Invalid cart item key")
         return data
