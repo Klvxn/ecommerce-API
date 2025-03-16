@@ -1,22 +1,39 @@
+from drf_writable_nested.serializers import WritableNestedModelSerializer
 from rest_framework import serializers
 
 from catalogue.serializers import ProductListSerializer
+from customers.serializers import AddressSerializer
 
 from .models import Store
 
 
-class StoreSerializer(serializers.ModelSerializer):
+class StoreSerializer(WritableNestedModelSerializer):
+    address = AddressSerializer()
+    owner = serializers.StringRelatedField()
+
     class Meta:
         model = Store
-        fields = ["id", "url", "brand_name", "about", "products_sold", "owner", "followers"]
+        fields = [
+            "id",
+            "url",
+            "name",
+            "about",
+            "is_active",
+            "is_verified",
+            "products_sold",
+            "owner",
+            "address",
+            "followers",
+        ]
         extra_kwargs = {"url": {"lookup_field": "slug"}}
+        read_only_fields = ["is_verified", "is_active", "products_sold", "followers"]
 
     def create(self, validated_data):
-        obj = super().create(validated_data)
-        obj.owner.is_vendor = True
-        obj.owner.is_staff = True
-        obj.save()
-        return obj
+        instance = super().create(validated_data)
+        instance.owner.is_vendor = True
+        instance.owner.is_staff = True
+        instance.save()
+        return instance
 
 
 class StoreInstanceSerializer(serializers.HyperlinkedModelSerializer):

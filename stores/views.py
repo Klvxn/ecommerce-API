@@ -1,12 +1,11 @@
-from drf_yasg.utils import swagger_auto_schema
 from rest_framework import decorators, status
-from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from .models import Store
-from .permissions import VendorOnly
-from .serializers import StoreSerializer, StoreInstanceSerializer
+from .permissions import StoreOwnerOnly
+from .serializers import StoreInstanceSerializer, StoreSerializer
 
 
 # Create your views here.
@@ -20,15 +19,15 @@ class StoreViewSet(ModelViewSet):
 
     http_method_names = ["get", "post", "put", "delete"]
     lookup_field = "slug"
-    queryset = Store.objects.all()
-    permission_classes = [VendorOnly, IsAuthenticated]
+    queryset = Store.objects.filter(is_active=True)
+    permission_classes = [StoreOwnerOnly, IsAuthenticated]
     serializer_class = StoreSerializer
 
     def get_permissions(self):
         if self.action == "create":
             permission_classes = [IsAuthenticated]
         elif self.action in ["update", "destroy"]:
-            permission_classes = [VendorOnly]
+            permission_classes = [StoreOwnerOnly]
         else:
             permission_classes = [AllowAny]
 
@@ -44,43 +43,12 @@ class StoreViewSet(ModelViewSet):
             self.check_object_permissions(request, self.get_object())
         return super().dispatch(request,*args, **kwargs)
 
-    @swagger_auto_schema(operation_summary="Get all stores", tags=["Store"])
-    def list(self, request, *args, **kwargs):
-        return super().list(request, args, kwargs)
+    def perform_create(self, serializer):
+        return serializer.save(owner=self.request.user)
 
-    @swagger_auto_schema(operation_summary="Get a store", tags=["Store"])
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, args, kwargs)
-
-    @swagger_auto_schema(operation_summary="Create a store", tags=["Store"])
-    def create(self, request, *args, **kwargs):
-        data = {
-            "about": request.data["about"],
-            "brand_name": request.data["brand_name"],
-            "customer": request.user.id
-        }
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    @swagger_auto_schema(operation_summary="Update a store", tags=["Store"])
-    def update(self, request, *args, **kwargs):
-        data = {
-            "about": request.data.get("about", self.get_object().about),
-            "brand_name": request.data.get("brand_name", self.get_object().brand_name)
-        }
-        serializer = self.get_serializer(self.get_object(), data=data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    @swagger_auto_schema(operation_summary="Delete a store", tags=["Store"])
-    def destroy(self, request, *args, **kwargs):
-        self.get_object().customer.is_vendor = False
-        self.get_object().customer.is_staff = False
-        self.get_object().save()
-        return super().destroy(args, kwargs)
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=["is_active"])
 
     @decorators.action(["post"], detail=True)
     def follow_store(self, request, pk):

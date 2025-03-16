@@ -1,29 +1,30 @@
 from autoslug import AutoSlugField
 from django.db import models
 
-from customers.models import Customer, Address
 
 
 # Create your models here.
 class Store(models.Model):
     """
-    Represents a vendor registered on the system who can list and sell products.
+    Represents a store registered on the system that can list and sell products.
 
     A Store is linked to a Customer model through a one-to-one relationship. This
     means that a Customer can own a Store, but a single Customer cannot be
     associated with multiple Stores.
     """
 
-    owner = models.OneToOneField(Customer, on_delete=models.CASCADE)
-    brand_name = models.CharField(max_length=50, unique=True, db_index=True)
+    owner = models.OneToOneField("customers.Customer", on_delete=models.CASCADE)
+    name = models.CharField(max_length=50, unique=True, db_index=True)
     about = models.TextField()
-    followers = models.ManyToManyField(Customer, related_name="following", blank=True)
-    slug = AutoSlugField(populate_from="brand_name", unique=True, always_update=True)
+    followers = models.ManyToManyField("customers.Customer", related_name="following", blank=True)
+    slug = AutoSlugField(populate_from="name", unique=True, always_update=True)
     date_joined = models.DateTimeField(auto_now_add=True)
-    address = models.OneToOneField(Address, on_delete=models.RESTRICT, null=True)
+    address = models.OneToOneField("customers.Address", on_delete=models.RESTRICT, null=True)
+    is_active = models.BooleanField(default=True)
+    is_verified = models.BooleanField(default=False)
 
     def __str__(self):
-        return self.brand_name
+        return self.name
 
     @property
     def followers_count(self):
