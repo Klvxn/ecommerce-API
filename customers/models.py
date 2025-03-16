@@ -11,24 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 # Create your models here.
-class Address(models.Model):
-    """
-    Represents a customer's shipping or billing address.
-    """
-
-    street_address = models.CharField(max_length=30)
-    postal_code = models.PositiveIntegerField()
-    city = models.CharField(max_length=50)
-    state = models.CharField(max_length=50)
-    country = models.CharField(max_length=30)
-
-    class Meta:
-        verbose_name_plural = "addresses"
-
-    def __str__(self):
-        return f"{self.city}, {self.state}"
-
-
 class Customer(AbstractUser):
     """
     Represents a user of the system who is a customer.
@@ -41,7 +23,6 @@ class Customer(AbstractUser):
     email = models.EmailField("email address", max_length=254, unique=True, db_index=True)
     slug = AutoSlugField(always_update=True, populate_from="get_full_name", unique=True)
     date_of_birth = models.DateField(null=True)
-    address = models.OneToOneField(Address, on_delete=models.SET_NULL, null=True, blank=True)
     is_vendor = models.BooleanField(default=False)
 
     last_purchase_date = models.DateTimeField(null=True, blank=True)
@@ -85,3 +66,23 @@ def get_sentinel_user():
     user = Customer.objects.create_user(**user_detail, is_active=False, password=dummy_password)
     logger.warning(f"Creating sentinel user: {user}")
     return user
+
+
+class Address(models.Model):
+    """
+    Represents a customer's shipping or billing address.
+    """
+    street_address = models.CharField(max_length=30)
+    postal_code = models.PositiveIntegerField()
+    customer = models.OneToOneField(
+        "customers.Customer", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    city = models.CharField(max_length=50)
+    state = models.CharField(max_length=50)
+    country = models.CharField(max_length=30)
+
+    class Meta:
+        verbose_name_plural = "addresses"
+
+    def __str__(self):
+        return f"{self.city}, {self.state}, {self.country}"  

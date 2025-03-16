@@ -8,7 +8,7 @@ from .models import Address, Customer
 class AddressSerializer(serializers.ModelSerializer):
     class Meta:
         model = Address
-        exclude = ["id"]
+        exclude = ["id", "customer"]
 
     def validate_country(self, data):
         if len(data) <= 3:
