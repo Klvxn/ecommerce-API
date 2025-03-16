@@ -1,12 +1,21 @@
+from django.utils.text import secrets
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
-from rest_framework import status
-from rest_framework.generics import GenericAPIView, get_object_or_404
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
+from rest_framework.generics import (
+    ListCreateAPIView,
+    RetrieveAPIView,
+    RetrieveUpdateDestroyAPIView,
+    get_object_or_404,
+)
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .models import Wishlist, Product
-from .serializers import WishlistSerializer
+from .models import Wishlist, WishlistItem
+from .serializers import WishlistItemSerializer, WishlistSerializer
 
 
 @extend_schema_view(
@@ -30,7 +39,7 @@ from .serializers import WishlistSerializer
         tags=["Wishlist"],
     ),
 )
-class WishlistListView(GenericAPIView):
+class WishlistListView(ListCreateAPIView):
     """
     API endpoint for managing a customer's wishlist.
     """
@@ -41,21 +50,12 @@ class WishlistListView(GenericAPIView):
     search_fields = ["name", "item__product__name"]
 
     def get_queryset(self):
-        queryset = Wishlist.objects.filter(owner=self.request.user)
+        queryset = Wishlist.active_objects.filter(owner=self.request.user)
         queryset = self.filter_queryset(queryset)
         return queryset
 
-    def get(self, request, *args, **kwargs):
-        serializer = self.get_serializer(self.get_queryset(), many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def post(self, request, *args, **kwargs):
-        context = self.get_serializer_context()
-        context["owner"] = request.user
-        serializer = self.get_serializer(data=request.data, context=context)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
 
 @extend_schema_view(
@@ -76,7 +76,6 @@ class WishlistListView(GenericAPIView):
         responses={
             201: None,
             400: {"type": "object", "properties": {"error": {"type": "string"}}},
-            401: None,
             404: None,
         },
         examples=[
@@ -111,50 +110,50 @@ class WishlistListView(GenericAPIView):
                 value={"product_id": 1},
                 description="Remove product with ID 1 from the wishlist",
             ),
-            OpenApiExample("Delete Wishlist", value={}, description="Delete the entire wishlist"),
+            OpenApiExample(
+                "Delete Wishlist", value={}, description="Delete the entire wishlist"
+            ),
         ],
         tags=["Wishlist"],
     ),
 )
-class WishlistInstanceView(GenericAPIView):
-    queryset = Wishlist.objects.all()
+class WishlistInstanceView(RetrieveUpdateDestroyAPIView):
+    queryset = Wishlist.active_objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
     search_fields = ["item__product__name"]
 
     def get_queryset(self):
-        queryset = Wishlist.objects.filter(owner=self.request.user)
-        queryset = self.filter_queryset(queryset)
+        queryset = Wishlist.active_objects.filter(owner=self.request.user)
+        # queryset = self.filter_queryset(queryset)
         return queryset
 
-    def dispatch(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.is_private:
-            self.check_object_permissions(request, instance)
-        return super().dispatch(request, *args, **kwargs)
+    def perform_update(self, serializer):
+        if serializer.validated_data.get("audience") == Wishlist.SHARED:
+            serializer.instance.sharing_token = (
+                serializer.instance.sharing_token or secrets.token_urlsafe(32)
+            )
+        serializer.save()
 
-    def get(self, request, pk):
-        serializer = self.get_serializer(self.get_object())
-        return Response(serializer.data, status=status.HTTP_200_OK)
 
-    def post(self, request, pk):
-        product_id = request.data.get("product_id")
-        if not product_id:
-            return Response({"error": "Product is required"}, status=status.HTTP_400_BAD_REQUEST)
-        product = get_object_or_404(Product, pk=product_id)
-        self.get_object().add(product)
-        return Response(status=status.HTTP_201_CREATED)
+class WishlistItemViewSet(ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = WishlistItemSerializer
 
-    def put(self, request, pk):
-        serializer = self.get_serializer(self.get_object(), data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def get_queryset(self):
+        return WishlistItem.objects.filter(
+            wishlist_id=self.kwargs["wishlist_pk"], wishlist__owner=self.request.user
+        )
 
-    def delete(self, request, pk):
-        product_id = request.data.get("product_id")
-        if not product_id:
-            self.get_object().delete()
-        else:
-            product = get_object_or_404(Product, pk=product_id)
-            self.get_object().remove(product)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def perform_create(self, serializer):
+        wishlist = get_object_or_404(
+            Wishlist, id=self.kwargs["wishlist_pk"], owner=self.request.user
+        )
+        serializer.save(wishlist=wishlist)
+
+
+class SharedWishlistView(RetrieveAPIView):
+    queryset = Wishlist.active_objects.filter(audience=Wishlist.SHARED)
+    serializer_class = WishlistSerializer
+    permission_classes = [AllowAny]
+    lookup_field = "sharing_token"

@@ -1,24 +1,38 @@
 from django.utils.crypto import secrets
 from rest_framework import serializers
 
+from catalogue.models import Product
 from catalogue.serializers import SimpleProductSerializer
+
 from .models import Wishlist, WishlistItem
 
 
 class WishlistItemSerializer(serializers.ModelSerializer):
     product = SimpleProductSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.active_objects.all(), write_only=True
+    )
 
     class Meta:
         model = WishlistItem
-        fields = ["id", "product", "added_at"]
+        fields = ["id", "product", "added_at", "product_id"]
+        read_only_fields = ["added_at", "product"]
+        write_only_fields = ["product_id"]
+
+    def validate(self, attrs):
+        product_id = attrs["product_id"]
+        try:
+            product = Product.active_objects.get(id=product_id)
+            attrs["product"] = product
+            return attrs
+        except Product.DoesNotExist:
+            return serializers.ValidationError({"product_id": "Product not found"})
 
 
 class WishlistSerializer(serializers.ModelSerializer):
     items = WishlistItemSerializer(many=True, read_only=True)
-    owner = serializers.StringRelatedField(read_only=True)
-    absolute_url = serializers.SerializerMethodField()
-    public_url = serializers.SerializerMethodField()
-    sharing_url = serializers.SerializerMethodField()
+    owner = serializers.StringRelatedField()
+    sharing_url = serializers.ReadOnlyField(source="get_sharing_url")
 
     class Meta:
         model = Wishlist
@@ -29,28 +43,11 @@ class WishlistSerializer(serializers.ModelSerializer):
             "audience",
             "note",
             "items",
-            "absolute_url",
-            "public_url",
+            "items_count",
             "sharing_url",
             "created",
             "updated",
         ]
-
-    def get_absolute_url(self, obj):
-        return obj.get_absolute_url()
-
-    def get_public_url(self, obj):
-        return obj.get_public_url()
-
-    def get_sharing_url(self, obj):
-        return obj.get_sharing_url()
-
-    def create(self, validated_data):
-        owner = self.context.get("owner")
-        if not owner:
-            raise serializers.ValidationError("Owner is required for wishlist creation")
-
-        return Wishlist.objects.create(owner=owner, **validated_data)
 
     def update(self, instance, validated_data):
         instance.name = validated_data.get("name", instance.name)
@@ -68,10 +65,19 @@ class WishlistSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         owner = self.context.get("owner")
+
         if not self.instance:  # Creating new wishlist
             if Wishlist.objects.filter(owner=owner, name=value).exists():
                 raise serializers.ValidationError("You already have a wishlist with this name")
+
         else:  # Updating existing wishlist
-            if Wishlist.objects.filter(owner=owner, name=value).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("You already have another wishlist with this name")
+            if (
+                Wishlist.objects.filter(owner=owner, name=value)
+                .exclude(id=self.instance.id)
+                .exists()
+            ):
+                raise serializers.ValidationError(
+                    "You already have another wishlist with this name"
+                )
+
         return value
