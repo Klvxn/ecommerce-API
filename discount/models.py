@@ -116,7 +116,7 @@ class Offer(TimeBased):
         
         Args:
             price: The price to calculate discount for
-            cap: Whether to cap the discount at the remaining allowance
+            cap: Whether to cap the discount at the remaining allowable discount
             
         Returns:
             Decimal: The actual discount amount that can be applied
