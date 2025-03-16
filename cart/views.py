@@ -35,6 +35,7 @@ class CartView(GenericAPIView):
                     "items": cart.cart_items.values(),
                     "count": len(cart),
                     "subtotal": cart.subtotal(),
+                    "savings": cart.get_total_discounts(),
                     "shipping": cart.total_shipping(),
                     "total": cart.total(),
                 },

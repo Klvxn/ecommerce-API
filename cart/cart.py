@@ -1,6 +1,7 @@
 import logging
 from decimal import Decimal as D
 
+from django.db import models
 from django.utils import dateparse, timezone
 
 from catalogue.models import ProductVariant
@@ -71,7 +72,11 @@ class Cart:
         # shipping = product.shipping or 0
         item_type = "standalone" if product.is_standalone else "variant"
 
-        item_key = f"prod{product.id}_{variant.sku}_dflt"
+        item_key = (
+            f"prod_{product.id}var_dflt"
+            if product.is_standalone
+            else f"prod{product.id}_var{variant.sku}"
+        )
         item = self.cart_items.get(
             item_key,
             {
@@ -89,7 +94,7 @@ class Cart:
 
         if offer_applied:
             offer = product.find_best_offer(self.customer)
-            self._apply_product_offer(item, offer, original_price, quantity)                
+            self._apply_active_offer(item, offer, original_price, quantity)                
                 
         self.cart_items[item_key] = item
         return self.save()
@@ -123,7 +128,7 @@ class Cart:
                 # Refund the previous discount amount and reapply discount using new quantity
                 prev_discount_amount = item["active_offer"]["discount_amount"]
                 offer.refund_discount(prev_discount_amount)
-                self._apply_product_offer(item, offer, original_price, new_quantity)
+                self._apply_active_offer(item, offer, original_price, new_quantity)
 
             except Offer.DoesNotExist:
                 # If offer no longer exists, remove it from the item
@@ -187,8 +192,7 @@ class Cart:
         for item in self.cart_items.values():
             if "active_offer" in item and "discount_amount" in item["active_offer"]:
                 try:
-                    offer_id = item["active_offer"].get("offer_id")
-                    if offer_id:
+                    if offer_id := item["active_offer"].get("offer_id"):
                         offer = Offer.active_objects.get(id=offer_id)
                         discount_amount = D(item["active_offer"]["discount_amount"])
                         offer.refund_discount(discount_amount)
@@ -265,8 +269,8 @@ class Cart:
             delattr(self, "applied_voucher")
 
             for item in self.cart_items.values():
-                if "voucher_discount" in item:
-                    del item["voucher_discount"]
+                if "voucher_offer" in item:
+                    del item["voucher_offer"]
 
             del self.session["applied_voucher"]
 
@@ -299,25 +303,29 @@ class Cart:
 
                     variant = variant_map.get(item["variant_id"])
                     if offer.valid_for_product(variant.product, self.customer):
-                        item_price = item["price"] * item["quantity"]
-                        discount_amount = offer.get_discount_amount(item_price)
-                        discount_amount = round(discount_amount, 2)
-                        item["voucher_discount"] = {
+                        item["voucher_offer"] = {
                             "voucher_id": voucher.id,
                             "discount_type": offer.discount_type,
-                            "discount_amount": discount_amount,
+                            "discount_amount": D("0.00"),
                         }
+                        self._append_discount_to_item(
+                            item,
+                            offer,
+                            "voucher_offer",
+                            original_price=item["original_price"],
+                            quantity=item["quantity"],
+                        )
         return
     
-    def _apply_product_offer(self, item, offer, original_price, quantity):
+    def _apply_active_offer(self, item, offer, original_price, quantity):
         """
-        Applies the best available offer to a cart item.
+        Applies the discount of an active offer on a product to a cart item.
 
         Args:
             item (dict): The cart item dictionary.
             offer (Offer): The offer object.
             original_price (Decimal): The original price of the product.
-            quantity (int): The quantity of the item(product)being added.
+            quantity (int): The quantity of the item(product) being added.
         """
         # Get the actual discount amount that can be applied
         per_unit = offer.get_discount_amount(original_price, False)
@@ -329,24 +337,38 @@ class Cart:
             "discount_type": offer.discount_type,
             "is_valid": (offer.is_active and not offer.is_expired),
         }
+        self._append_discount_to_item(item, offer, "active_offer", original_price, quantity)
 
-        capped = min(discount_amount, offer.remaining_discount)
-        if capped < discount_amount:
-            per_unit = capped / quantity
-            adjusted_percentage = (per_unit / original_price) * 100
-            offer.update_total_discount(capped)
+    def _append_discount_to_item(self, item, offer, type, original_price, quantity):
+        per_unit = offer.get_discount_amount(original_price, False)
+        uncapped_discount = per_unit * quantity
+        capped_discount = min(uncapped_discount, offer.remaining_discount)
+
+        if capped_discount < uncapped_discount:
+            per_unit = capped_discount / quantity
             item["price"] = str(original_price - per_unit)
-            item["active_offer"]["partial"] = True
-            item["active_offer"]["discount_amount"] = str(capped)
-            item["active_offer"]["ideal_discount"] = str(discount_amount)
-            item["active_offer"]["adjusted_discount_rate"] = str(per_unit)
-            item["active_offer"]["adjusted_percentage"] = str(adjusted_percentage)
+            item[type]["adjusted_discount_rate"] = str(per_unit)
+            item[type]["is_partial"] = True
+            item[type]["discount_amount"] = str(capped_discount)
+            item[type]["ideal_discount"] = str(uncapped_discount)
+
+            if offer.is_percentage_discount:
+                adjusted_percentage = (per_unit / original_price) * 100
+                item[type]["adjusted_percentage"] = str(round(adjusted_percentage, 2))
+
+            elif offer.is_fixed_discount:
+                adjusted_fixed = per_unit
+                item[type]["adjusted_fixed"] = adjusted_fixed
+
+            offer.update_total_discount(capped_discount)
+
         else:
             # Full discount can be applied
-            per_unit = discount_amount / quantity
+            per_unit = uncapped_discount/ quantity
             item["price"] = str(original_price - per_unit)
-            item["active_offer"]["just_applied"] = True
-            offer.update_total_discount(discount_amount)
+            item[type]["discount_amount"] = str(per_unit)
+            item[type]["just_applied"] = True
+            offer.update_total_discount(uncapped_discount)
 
     def needs_refresh(self):
         last_refresh = dateparse.parse_datetime(self.meta.get("last_refreshed"))
@@ -472,6 +494,33 @@ class Cart:
         item["offer_applied"] = False
         return False
 
+
+    def _find_applicable_offer(self):
+        applicable_offers = Offer.active_objects.filter(
+            conditions__condition_type="min_order_value",
+            conditions__min_order_value__gt=D("0.00"),
+            offer_type="order",
+            requires_voucher=False,
+            total_discount_offered__lt=models.F("max_discount_allowed"),
+        ).distinct()
+        offer_discounts = []
+        for offer in applicable_offers:
+            is_valid, _ = offer.satisfies_conditions(order=self, customer=self.customer)
+
+            if is_valid:
+                discount_amount = offer.get_discount_amount(self.subtotal())
+                offer_discounts.append((offer, discount_amount))
+
+        # Sort by discount amount and get the best offer
+        if offer_discounts:
+            best_offer, _ = max(offer_discounts, key=lambda x: x[1])
+            return best_offer
+
+    def _apply_order_offer(self):
+        best_offer = self._find_applicable_offer()
+        discounted = best_offer.apply_discount(self.subtotal())
+        return discounted
+
     def total_shipping(self):
         total = 0
         for value in self.cart_items.values():
@@ -493,15 +542,18 @@ class Cart:
             offer = self.applied_voucher.offer
             if offer.for_product:
                 return sum(
-                    item.get("voucher_discount", {}).get("discount_amount", 0)
+                    item.get("voucher_offer", {}).get("discount_amount", 0)
                     for item in self.cart_items.values()
                 )
             elif offer.for_order:
                 return offer.get_discount_amount(self.subtotal())
         return 0
 
+    def get_total_discounts(self):
+        return self.get_total_voucher_discounts() +  self._apply_order_offer()
+
     def total(self):
         shipping = self.total_shipping()
         subtotal = self.subtotal()
-        total_discount = self.get_total_voucher_discounts()
+        total_discount = self.get_total_discounts()
         return subtotal + shipping - total_discount

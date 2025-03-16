@@ -9,7 +9,7 @@ class AddCartItemSerializer(serializers.Serializer):
     variant_sku = serializers.CharField(label="Variant SKU", max_length=20)
 
     def validate_variant_sku(self, data):
-        if not ProductVariant.objects.filter(sku=data).exists():
+        if not ProductVariant.active_objects.filter(sku=data).exists():
             raise serializers.ValidationError("Invalid variant SKU")
         return data
 
