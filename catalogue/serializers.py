@@ -119,8 +119,9 @@ class ProductListSerializer(serializers.ModelSerializer):
         best_offer = obj.find_best_offer(customer=request.user)
         if not best_offer:
             return None
-        discount_amount = best_offer.get_discount_amount(self.get_base_price(obj))
-        return self.get_base_price(obj) - discount_amount
+        base_price = self.get_base_price(obj)
+        discount_amount = best_offer.get_discount_amount(base_price)
+        return base_price - discount_amount
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

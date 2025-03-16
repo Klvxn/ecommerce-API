@@ -43,6 +43,7 @@ class Product(BaseModel):
     base_price = models.DecimalField(max_digits=10, decimal_places=2)
     shipping_fee = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     rating = models.FloatField(null=True, blank=True)
+    specs = models.JSONField(null=True, blank=True)
     is_standalone = models.BooleanField(
         default=True,
         help_text="Does/Will this product have variants that inherits its properties?",
