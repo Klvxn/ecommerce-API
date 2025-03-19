@@ -1,8 +1,10 @@
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiRequest,
     OpenApiResponse,
     extend_schema,
+    extend_schema_view,
 )
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
@@ -17,12 +19,68 @@ from .serializers import AddCartItemSerializer, UpdateCartItemSerializer
 
 
 # Create your views here.
+@extend_schema_view(
+    get=extend_schema(
+        summary="Retrieve customer's  cart and cart items",
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT),
+        },
+        tags=["Cart"],
+    ),
+    post=extend_schema(
+        summary="Add a product to cart",
+        request=OpenApiRequest(
+            AddCartItemSerializer,
+            examples=[
+                OpenApiExample(
+                    "Valid Request", value={"quantity": 2, "variant_sku": "SKWIUBIBWI124"}
+                )
+            ],
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Successful",
+                examples=[
+                    OpenApiExample(
+                        "Success response",
+                        value={
+                            "success": True,
+                            "message": "2x Campari Wine 75cl has been added",
+                            "cart_total": 23.5,
+                        },
+                    )
+                ],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Bad request",
+                examples=[
+                    OpenApiExample(
+                        "Invalid quantity",
+                        value={
+                            "success": False,
+                            "message": "Requested quantity: 8 exceeds available stock: 3 for this variant",
+                            "cart_total": 0.00,
+                        },
+                    )
+                ],
+            ),
+        },
+        tags=["Cart"],
+    ),
+    delete=extend_schema(
+        summary="Delete customer's cart",
+        responses={204: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+        tags=["Cart"],
+    ),
+)
 class CartView(GenericAPIView):
     """
     View for viewing and adding items to cart.
     """
 
-    queryset = Product.objects.all()
+    queryset = Product.active_objects.all()
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "delete"]
     serializer_class = AddCartItemSerializer
@@ -43,26 +101,6 @@ class CartView(GenericAPIView):
             )
         return Response({"message": "Your cart is empty"}, status=status.HTTP_200_OK)
 
-    @extend_schema(
-        summary="Add a product to cart",
-        request=OpenApiRequest("Add to cart", AddCartItemSerializer()),
-        examples=[
-            OpenApiExample(
-                "Valid Request",
-                value={"quantity": 12, "variant_sku": "2f23232242f2f3f"},
-                request_only=True,
-                response_only=False,
-            )
-        ],
-        responses=[
-            OpenApiResponse(
-                response=200,
-                description="Successfuly added to cart",
-                examples=[OpenApiExample("Example", value={"message": "Successfuly"})],
-            )
-        ],
-        tags=["Cart"],
-    )
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -73,7 +111,8 @@ class CartView(GenericAPIView):
         cart.add(variant, quantity)
         return Response(
             {
-                "success": f"{quantity}x {variant} has been added",
+                "success": True,
+                "message": f"{quantity}x {variant} has been added",
                 "cart_total": cart.total(),
             },
             status=status.HTTP_200_OK,
@@ -82,25 +121,78 @@ class CartView(GenericAPIView):
     def delete(self, request):
         cart = Cart(request)
         cart.clear()
-        return Response({"success": "Cart has been cleared"}, status=status.HTTP_204_NO_CONTENT)
+        return Response(
+            {"success": True, "message": "Cart has been cleared"},
+            status=status.HTTP_204_NO_CONTENT,
+        )
 
 
+@extend_schema_view(
+    put=extend_schema(
+        request=UpdateCartItemSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Successful",
+                examples=[
+                    OpenApiExample(
+                        "Success response",
+                        value={"success": True, "message": "Cart item has been updated"},
+                    )
+                ],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Bad request",
+                examples=[
+                    OpenApiExample(
+                        "Unavailable item",
+                        value={
+                            "success": False,
+                            "message": "Item is no longer available and was removed",
+                        },
+                    )
+                ],
+            ),
+        },
+        tags=["Cart"],
+    ),
+    delete=extend_schema(
+        responses={
+            204: OpenApiResponse(
+                response=OpenApiTypes.NONE, description="Successful, No content"
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Not found",
+                examples=[
+                    OpenApiExample(
+                        "Item not found",
+                        value={"success": False, "message": "This item is not in your cart"},
+                    )
+                ],
+            ),
+        },
+        tags=["Cart"],
+    ),
+)
 class CartItemView(GenericAPIView):
     """
     View to managing cart items.
     """
+
     serializer_class = UpdateCartItemSerializer
     permission_classes = [AllowAny]
 
     def put(self, request):
         cart = Cart(request)
         serializer = UpdateCartItemSerializer(data=request.data, context={"cart": cart})
-        if serializer.is_valid(raise_exception=True):
 
+        if serializer.is_valid(raise_exception=True):
             item_key = serializer.validated_data["item_key"]
             quantity = serializer.validated_data["quantity"]
             updated, msg = cart.update(item_key, quantity=quantity)
-            return Response({"success": updated, "message": msg}, status=status.HTTP_200_OK) 
+            return Response({"success": updated, "message": msg}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -108,7 +200,6 @@ class CartItemView(GenericAPIView):
         cart = Cart(request)
         serializer = UpdateCartItemSerializer(data=request.data, context={"cart": cart})
         if serializer.is_valid(raise_exception=True):
-
             item_key = serializer.validated_data["item_key"]
             if item_key in cart.cart_items.keys() and cart.remove(item_key):
                 return Response(
@@ -123,6 +214,68 @@ class CartItemView(GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        request=OpenApiRequest(
+            request=OpenApiTypes.OBJECT,
+            examples=[OpenApiExample("Valid Request", value={"voucher_code": "SUMMER2021"})],
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Created",
+                examples=[
+                    OpenApiExample(
+                        "Success response",
+                        value={"success": True, "message": "Voucher has been applied"},
+                    )
+                ],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Bad request",
+                examples=[
+                    OpenApiExample(
+                        "Invalid voucher code",
+                        value={
+                            "success": False,
+                            "message": "No item in your cart is eligible for this voucher offer",
+                        },
+                    )
+                ],
+            ),
+        },
+        tags=["Cart"],
+    ),
+    delete=extend_schema(
+        responses={
+            204: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Successful",
+                examples=[
+                    OpenApiExample(
+                        "Success response",
+                        value={
+                            "success": True,
+                            "message": "Applied voucher has been successfully removed",
+                        },
+                    )
+                ],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Bad request",
+                examples=[
+                    OpenApiExample(
+                        "No applied voucher",
+                        value={"success": False, "message": "No applied voucher to remove"},
+                    )
+                ],
+            ),
+        },
+        tags=["Cart"],
+    ),
+)
 class CartVoucherView(APIView):
     permission_classes = [AllowAny]
 
@@ -140,9 +293,11 @@ class CartVoucherView(APIView):
         applied, msg = cart.apply_voucher(voucher_code=voucher_code)
 
         if not applied:
-            return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": msg}, status=status.HTTP_400_BAD_REQUEST
+            )
 
-        return Response({"success": msg}, status=status.HTTP_200_OK)
+        return Response({"success": True, "message": msg}, status=status.HTTP_200_OK)
 
     def delete(self, request):
         """
@@ -151,9 +306,12 @@ class CartVoucherView(APIView):
         cart = Cart(request)
         removed = cart.remove_voucher()
         if not removed:
-            return Response({"error": "No applied voucher to remove"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "No applied voucher to remove"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(
-            {"success": "Applied voucher has been successfully removed"},
-            status=status.HTTP_200_OK,
+            {"success": True, "message": "Applied voucher has been successfully removed"},
+            status=status.HTTP_204_NO_CONTENT,
         )

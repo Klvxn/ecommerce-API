@@ -1,17 +1,23 @@
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
+    OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_view,
 )
-from drf_spectacular.types import OpenApiTypes
 from rest_framework import exceptions, status
 from rest_framework.decorators import api_view
-from rest_framework.generics import GenericAPIView, ListAPIView, RetrieveAPIView, get_object_or_404
+from rest_framework.generics import (
+    GenericAPIView,
+    ListAPIView,
+    RetrieveAPIView,
+    get_object_or_404,
+)
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
 
 from .models import Category, Product, Review
 from .serializers import (
@@ -24,17 +30,8 @@ from .serializers import (
 
 
 # Create your views here.
-class CategoryListView(ListAPIView):
-    """
-    View to list products with filtering, searching, and pagination.
-    """
-
-    queryset = Category.objects.all()
-    permission_classes = [AllowAny]
-    serializer_class = CategoryListSerializer
-    search_fields = ["name"]
-
-    @extend_schema(
+@extend_schema_view(
+    get=extend_schema(
         summary="Get all product categories",
         parameters=[
             OpenApiParameter(
@@ -47,27 +44,52 @@ class CategoryListView(ListAPIView):
         responses={200: CategoryListSerializer(many=True)},
         tags=["Category"],
     )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
+)
+class CategoryListView(ListAPIView):
+    """
+    View to list products with filtering, searching, and pagination.
+    """
+
+    queryset = Category.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = CategoryListSerializer
+    search_fields = ["name"]
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Retrieve a category and its associated products",
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                description="Search categories",
+                location=OpenApiParameter.QUERY,
+                type=OpenApiTypes.STR,
+            )
+        ],
+        responses={
+            200: CategoryInstanceSerializer,
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No category matches the given query"}
+                    )
+                ],
+            ),
+        },
+        tags=["Category"],
+    )
+)
 class CategoryInstanceView(RetrieveAPIView):
     """
     Includes method to retrieve a single product category.
     """
 
-    http_method_names = ["get"]
     queryset = Category.objects.all()
     permission_classes = [AllowAny]
     serializer_class = CategoryInstanceSerializer
-
-    @extend_schema(
-        summary="Retrieve a category and its associated products",
-        responses={200: CategoryInstanceSerializer(), 404: "Not Found"},
-        tags=["Category"],
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
 
 
 class ProductListView(GenericAPIView, LimitOffsetPagination):
@@ -113,25 +135,35 @@ class ProductListView(GenericAPIView, LimitOffsetPagination):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class ProductInstanceView(GenericAPIView):
-    """
-    Includes method to retrieve a single product.
-    """
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get a product",
+        responses={
+            200: ProductInstanceSerializer,
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No category matches the given query"}
+                    )
+                ],
+            ),
+        },
+    ),
+    tags=["product"],
+)
+class ProductInstanceView(RetrieveAPIView):
 
     http_method_names = ["get"]
     queryset = Product.active_objects.all()
     permission_classes = [AllowAny]
     serializer_class = ProductInstanceSerializer
 
-    @extend_schema(
-        summary="Retrieve a product",
-        responses={200: ProductInstanceSerializer(), 404: "Not Found"},
-        tags=["Product"],
-    )
-    def get(self, request, pk):
-        product = self.get_object()
-        serializer = self.get_serializer(product, context={"product": product, "request": request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["product"] = self.get_object()
+        return context
 
 
 @api_view(["GET"])
@@ -151,7 +183,12 @@ def load_product_attrs(request, pk):
     post=extend_schema(
         summary="Add a review for a product",
         request=ProductReviewSerializer,
-        responses={201: ProductReviewSerializer, 400: "Bad request"},
+        responses={
+            201: ProductReviewSerializer,
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Error: Bad request"
+            ),
+        },
         tags=["Review"],
     ),
 )
@@ -200,12 +237,37 @@ class ProductReviewView(APIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Get a product's review",
-        responses={200: ProductReviewSerializer, 404: "Review doesn't exist"},
+        responses={
+            200: ProductReviewSerializer,
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No review matches the given query"}
+                    )
+                ],
+            ),
+        },
         tags=["Review"],
     ),
     put=extend_schema(
         summary="Update a product's review",
-        responses={200: ProductReviewSerializer, 400: "Bad request", 404: "Review doesn't exist"},
+        responses={
+            200: ProductReviewSerializer,
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Error: Bad request"
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No review matches the given query"}
+                    )
+                ],
+            ),
+        },
         tags=["Review"],
     ),
     delete=extend_schema(summary="Delete a product's review", tags=["Review"]),
