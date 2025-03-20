@@ -3,6 +3,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_view,
 )
@@ -13,6 +14,7 @@ from rest_framework.generics import (
     get_object_or_404,
 )
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.viewsets import ModelViewSet
 
 from .models import Wishlist, WishlistItem
 from .serializers import WishlistItemSerializer, WishlistSerializer
@@ -29,13 +31,18 @@ from .serializers import WishlistItemSerializer, WishlistSerializer
                 location=OpenApiParameter.QUERY,
             )
         ],
-        responses={200: WishlistSerializer(many=True), 401: None},
+        responses={200: WishlistSerializer(many=True)},
         tags=["Wishlist"],
     ),
     post=extend_schema(
         summary="Create a new wishlist",
         request=WishlistSerializer,
-        responses={201: WishlistSerializer, 400: None, 401: None},
+        responses={
+            201: WishlistSerializer,
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Error: Bad request"
+            ),
+        },
         tags=["Wishlist"],
     ),
 )
@@ -44,7 +51,6 @@ class WishlistListView(ListCreateAPIView):
     API endpoint for managing a customer's wishlist.
     """
 
-    http_method_names = ["get", "post"]
     permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
     search_fields = ["name", "item__product__name"]
@@ -61,63 +67,61 @@ class WishlistListView(ListCreateAPIView):
 @extend_schema_view(
     get=extend_schema(
         summary="Get a specific wishlist",
-        responses={200: WishlistSerializer, 401: None, 403: None, 404: None},
-        tags=["Wishlist"],
-    ),
-    post=extend_schema(
-        summary="Add a product to wishlist",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {"product_id": {"type": "integer"}},
-                "required": ["product_id"],
-            }
-        },
         responses={
-            201: None,
-            400: {"type": "object", "properties": {"error": {"type": "string"}}},
-            404: None,
+            200: WishlistSerializer,
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No Wishlist matches the given query"}
+                    )
+                ],
+            ),
         },
-        examples=[
-            OpenApiExample(
-                "Valid Request",
-                value={"product_id": 1},
-                description="Add product with ID 1 to the wishlist",
-            )
-        ],
         tags=["Wishlist"],
     ),
     put=extend_schema(
         summary="Update wishlist details",
         request=WishlistSerializer,
-        responses={201: WishlistSerializer, 400: None, 401: None, 404: None},
+        responses={
+            200: WishlistSerializer,
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Error: Bad request"
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No Wishlist matches the given query"}
+                    )
+                ],
+            ),
+        },
         tags=["Wishlist"],
     ),
     delete=extend_schema(
-        summary="Delete wishlist or remove product",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "product_id": {"type": "integer"},
-                },
-            }
+        summary="Delete wishlist",
+        responses={
+            204: OpenApiResponse(
+                response=OpenApiTypes.NONE, description="Successful, No content"
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No Wishlist matches the given query"}
+                    )
+                ],
+            ),
         },
-        responses={204: None, 401: None, 404: None},
-        examples=[
-            OpenApiExample(
-                "Remove Product",
-                value={"product_id": 1},
-                description="Remove product with ID 1 from the wishlist",
-            ),
-            OpenApiExample(
-                "Delete Wishlist", value={}, description="Delete the entire wishlist"
-            ),
-        ],
         tags=["Wishlist"],
     ),
 )
 class WishlistInstanceView(RetrieveUpdateDestroyAPIView):
+    http_method_names = ["get", "put", "delete"]
     queryset = Wishlist.active_objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = WishlistSerializer
@@ -136,22 +140,46 @@ class WishlistInstanceView(RetrieveUpdateDestroyAPIView):
         serializer.save()
 
 
-class WishlistItemViewSet(ListCreateAPIView):
+@extend_schema_view(
+    retrieve=extend_schema(tags=["Wishlist"]),
+    create=extend_schema(tags=["Wishlist"]),
+    destroy=extend_schema(tags=["Wishlist"])
+)
+class WishlistItemViewSet(ModelViewSet):
+    http_method_names = ["get", "post", "delete"]
     permission_classes = [IsAuthenticated]
     serializer_class = WishlistItemSerializer
 
     def get_queryset(self):
         return WishlistItem.objects.filter(
-            wishlist_id=self.kwargs["wishlist_pk"], wishlist__owner=self.request.user
+            wishlist_id=self.kwargs["wishlist_id"], wishlist__owner=self.request.user
         )
 
     def perform_create(self, serializer):
         wishlist = get_object_or_404(
-            Wishlist, id=self.kwargs["wishlist_pk"], owner=self.request.user
+            Wishlist, id=self.kwargs["wishlist_id"], owner=self.request.user
         )
         serializer.save(wishlist=wishlist)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get a specific wishlist",
+        responses={
+            200: WishlistSerializer,
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Error: Not found",
+                examples=[
+                    OpenApiExample(
+                        "Not found", value={"detail": "No Wishlist matches the given query"}
+                    )
+                ],
+            ),
+        },
+        tags=["Wishlist"],
+    )
+)
 class SharedWishlistView(RetrieveAPIView):
     queryset = Wishlist.active_objects.filter(audience=Wishlist.SHARED)
     serializer_class = WishlistSerializer

@@ -42,7 +42,7 @@ from .serializers import (
             )
         ],
         responses={200: CategoryListSerializer(many=True)},
-        tags=["Category"],
+        tags=["Catalogue"],
     )
 )
 class CategoryListView(ListAPIView):
@@ -79,7 +79,7 @@ class CategoryListView(ListAPIView):
                 ],
             ),
         },
-        tags=["Category"],
+        tags=["Catalogue"],
     )
 )
 class CategoryInstanceView(RetrieveAPIView):
@@ -118,7 +118,7 @@ class ProductListView(GenericAPIView, LimitOffsetPagination):
             )
         ],
         responses={200: ProductListSerializer(many=True)},
-        tags=["Product"],
+        tags=["Catalogue"],
     )
     def get(self, request, slug=None):
         products = self.get_queryset()
@@ -150,12 +150,11 @@ class ProductListView(GenericAPIView, LimitOffsetPagination):
                 ],
             ),
         },
-    ),
-    tags=["product"],
+        tags=["Catalogue"],
+    )
 )
 class ProductInstanceView(RetrieveAPIView):
 
-    http_method_names = ["get"]
     queryset = Product.active_objects.all()
     permission_classes = [AllowAny]
     serializer_class = ProductInstanceSerializer

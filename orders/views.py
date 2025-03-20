@@ -163,6 +163,7 @@ class CheckoutView(CreateAPIView):
 class OrderInstanceView(RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
+    http_method_names = ["get", "put", "delete"]
 
     def get_queryset(self):
         return Order.active_objects.filter(customer=self.request.user)
