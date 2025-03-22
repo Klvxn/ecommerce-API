@@ -9,6 +9,7 @@ from discount.models import Offer, Voucher
 
 logger = logging.getLogger(__name__)
 
+
 class Cart:
     """
     Shopping cart implementation using Django sessions.
@@ -30,16 +31,16 @@ class Cart:
         """
         self.customer = request.user
         self.session = request.session
-        
+
         if "cart" in self.session:
             cart_data = self.session["cart"]
-            
+
             if "last_activity" in cart_data:
                 last_activity = dateparse.parse_datetime(cart_data["last_activity"])
                 inactivity_threshold = timezone.now() - timezone.timedelta(minutes=45)
-                
+
                 if last_activity < inactivity_threshold:
-                    # This approach is not ideal because it won't catch cases of sessions never getting 
+                    # This approach is not ideal because it won't catch cases of sessions never getting
                     # loaded again. That's where a cron job or a scheduled task comes in.
                     self.clear()
 
@@ -50,7 +51,7 @@ class Cart:
         )
         self.meta = cart_data
         self.cart_items = cart_data["cart_items"]
-        
+
         self.refresh(force=force_refresh)
 
     def __iter__(self):
@@ -94,8 +95,8 @@ class Cart:
 
         if offer_applied:
             offer = product.find_best_offer(self.customer)
-            self._apply_active_offer(item, offer, original_price, quantity)                
-                
+            self._apply_active_offer(item, offer, original_price, quantity)
+
         self.cart_items[item_key] = item
         return self.save()
 
@@ -106,7 +107,7 @@ class Cart:
 
         Args:
             item_key (str): key of the item to be updated
-            quantity (int): the new quantity 
+            quantity (int): the new quantity
         """
 
         if item_key not in self.cart_items:
@@ -119,9 +120,8 @@ class Cart:
         old_quantity, new_quantity = item["quantity"], quantity
         quantity_diff = new_quantity - old_quantity
         original_price = D(item["original_price"])
-        
+
         if "active_offer" in item and quantity_diff != 0:
-            
             try:
                 offer = Offer.active_objects.get(id=item["active_offer"]["offer_id"])
 
@@ -136,7 +136,7 @@ class Cart:
                 item["offer_applied"] = False
 
         try:
-            variant = ProductVariant.objects.get(id=item["variant_id"])
+            variant = ProductVariant.active_objects.get(id=item["variant_id"])
             if new_quantity > variant.stock_level:
                 item["quantity"] = variant.stock_level
                 message = f"Quantity limited to available stock: ({variant.stock_level})"
@@ -165,7 +165,7 @@ class Cart:
     def remove(self, item_key):
         if item_key not in self.cart_items:
             return False
-        
+
         item = self.cart_items[item_key]
         if "active_offer" in item:
             if offer_id := item["active_offer"].get("offer_id"):
@@ -175,7 +175,7 @@ class Cart:
                 except Offer.DoesNotExist:
                     pass
             del item["active_offer"]
-            
+
         del self.cart_items[item_key]
         return self.save()
 
@@ -184,36 +184,41 @@ class Cart:
         self.session.modified = True
         return True
 
-    def clear(self):
+    def clear(self, discounts_applied=False):
         """
         Clear the cart and refund all applied discounts back to offers.
         """
         # First refund any active offers
-        for item in self.cart_items.values():
-            if "active_offer" in item and "discount_amount" in item["active_offer"]:
-                try:
-                    if offer_id := item["active_offer"].get("offer_id"):
-                        offer = Offer.active_objects.get(id=offer_id)
-                        discount_amount = D(item["active_offer"]["discount_amount"])
-                        offer.refund_discount(discount_amount)
-                        logger.info(f"Refunded discount of {discount_amount} to offer {offer.title}")
-                        
-                except Offer.DoesNotExist:
-                    logger.warning(f"Cannot refund discount: Offer {item.get('active_offer', {}).get('offer_id')} not found")
-                    
-                except Exception as e:
-                    logger.error(f"Error refunding discount: {str(e)}")
-        
+        if not discounts_applied:
+            for item in self.cart_items.values():
+                if "active_offer" in item and "discount_amount" in item["active_offer"]:
+                    try:
+                        if offer_id := item["active_offer"].get("offer_id"):
+                            offer = Offer.active_objects.get(id=offer_id)
+                            discount_amount = D(item["active_offer"]["discount_amount"])
+                            offer.refund_discount(discount_amount)
+                            logger.info(
+                                f"Refunded discount of {discount_amount} to offer {offer.title}"
+                            )
+
+                    except Offer.DoesNotExist:
+                        logger.warning(
+                            f"Cannot refund discount: Offer {item.get('active_offer', {}).get('offer_id')} not found"
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Error refunding discount: {str(e)}")
+
         # Clear any applied voucher
         if "applied_voucher" in self.session:
             del self.session["applied_voucher"]
             if hasattr(self, "applied_voucher"):
                 delattr(self, "applied_voucher")
-        
+
         # Then clear the cart
         if "cart" in self.session:
             del self.session["cart"]
-        
+
         self.save()
         return True
 
@@ -239,7 +244,7 @@ class Cart:
                     if item["offer_applied"]:
                         continue  # skip items with active offers
 
-                    variant = ProductVariant.objects.get(id=item["variant_id"])
+                    variant = ProductVariant.active_objects.get(id=item["variant_id"])
                     if voucher.offer.valid_for_product(variant.product, self.customer):
                         has_eligible_items = True
                         break
@@ -295,7 +300,7 @@ class Cart:
 
             if offer.for_product:
                 variant_ids = [item["variant_id"] for item in self.cart_items.values()]
-                variant_map = ProductVariant.objects.select_related("product").in_bulk(variant_ids)
+                variant_map = ProductVariant.active_objects.select_related("product").in_bulk(variant_ids)
 
                 for item in self.cart_items.values():
                     if item["offer_applied"]:
@@ -316,7 +321,7 @@ class Cart:
                             quantity=item["quantity"],
                         )
         return
-    
+
     def _apply_active_offer(self, item, offer, original_price, quantity):
         """
         Applies the discount of an active offer on a product to a cart item.
@@ -364,7 +369,7 @@ class Cart:
 
         else:
             # Full discount can be applied
-            per_unit = uncapped_discount/ quantity
+            per_unit = uncapped_discount / quantity
             item["price"] = str(original_price - per_unit)
             item[type]["discount_amount"] = str(per_unit)
             item[type]["just_applied"] = True
@@ -394,7 +399,7 @@ class Cart:
 
         logger.info("Refreshing cart items")
         variant_ids = [item["variant_id"] for item in self.cart_items.values()]
-        variant_map = ProductVariant.objects.select_related("product").in_bulk(variant_ids)
+        variant_map = ProductVariant.active_objects.select_related("product").in_bulk(variant_ids)
         changed = False
 
         for key, item in self.cart_items.items():
@@ -427,7 +432,7 @@ class Cart:
         if "active_offer" in item and item["active_offer"].get("just_applied"):
             item["active_offer"].pop("just_applied", None)
             return False
-        
+
         # If the item already has a valid active offer that's maxed out,
         # we need to preserve it rather than using the variant's current price
         has_maxed_offer = False
@@ -442,16 +447,16 @@ class Cart:
                     has_maxed_offer = True
             except Offer.DoesNotExist:
                 pass
-        
+
         # If we found a valid maxed offer, don't update price
         if has_maxed_offer:
             return False
-            
+
         # Otherwise proceed with normal price update
         if item["price"] == str(current_price):
             return False
         print("Updating item price: ", item["price"], current_price)
-    
+
         item.update({
             "price": str(current_price),
             "original_price": str(variant.actual_price),
@@ -464,7 +469,7 @@ class Cart:
             if "active_offer" in item:
                 del item["active_offer"]
             return False
-        
+
         if "active_offer" in item:
             exisiting_offer_id = item["active_offer"].get("offer_id")
             try:
@@ -477,23 +482,22 @@ class Cart:
                         item["active_offer"]["is_valid"] = True
                         return True
                     return False
-                
+
                 # Offer is expired and in-active, refund the discount amount and delete offer from the item
                 if discount_amount := item["active_offer"].get("discount_amount"):
                     existing_offer.refund_discount(discount_amount)
                 del item["active_offer"]
                 item["offer_applied"] = False
-                
+
             except Offer.DoesNotExist:
                 del item["active_offer"]
                 item["offer_applied"] = False
-                
+
             return True
 
         # If offer_applied is true but active_offer isn't stored, set offer_applied to false
         item["offer_applied"] = False
         return False
-
 
     def _find_applicable_offer(self):
         applicable_offers = Offer.active_objects.filter(
@@ -550,7 +554,7 @@ class Cart:
         return 0
 
     def get_total_discounts(self):
-        return self.get_total_voucher_discounts() +  self._apply_order_offer()
+        return self.get_total_voucher_discounts() + self._apply_order_offer()
 
     def total(self):
         shipping = self.total_shipping()
