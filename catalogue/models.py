@@ -12,6 +12,7 @@ from discount.models import Offer
 from stores.models import Store
 
 from .abstract import BaseModel
+from .sentiment import analyze
 
 # Create your models here.
 User = get_user_model()
@@ -155,6 +156,7 @@ class ProductVariant(BaseModel):
     )
     stock_level = models.PositiveIntegerField()
     quantity_sold = models.PositiveIntegerField(default=0)
+    image = models.ImageField(upload_to="media/variants", null=True, blank=True)
 
     class Meta:
         ordering = ("-quantity_sold",)
@@ -175,14 +177,14 @@ class ProductVariant(BaseModel):
         return self.product.base_price + self.price_adjustment
 
     def _get_discount_price(self, customer):
-        # Find and apply best price from the product's offers for the customer 
+        # Find and apply best price from the product's offers for the customer
         product_offer = self.product.find_best_offer(customer)
         if product_offer:
             return product_offer.apply_discount(self.actual_price)
         return 0
 
     def get_final_price(self, customer=None):
-        discount_price = None if not customer else self._get_discount_price(customer)  
+        discount_price = None if not customer else self._get_discount_price(customer)
         return discount_price if discount_price else self.actual_price
 
     def clean(self):
@@ -212,7 +214,6 @@ class ProductMedia(BaseModel):
     """
     Handles media files (images/videos) for products with validation
     """
-
     ALLOWED_IMAGE_TYPES = {
         "image/jpeg": ".jpg",
         "image/png": ".png",
@@ -300,13 +301,14 @@ class Review(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="reviews")
     review_text = models.TextField()
     rating = models.IntegerField(choices=Ratings.choices)
-    sentiment = models.CharField(max_length=50, null=True, choices=SENTIMENT_TYPES)
-    sentiment_score = models.FloatField(null=True)
+    sentiment = models.CharField(max_length=50, null=True, choices=SENTIMENT_TYPES, blank=True)
+    sentiment_score = models.FloatField(null=True, blank=True)
 
     class Meta:
         get_latest_by = "created"
 
     def save(self, *args, **kwargs):
+        self.sentiment_score, self.sentiment = analyze(self.review_text)
         super().save(*args, **kwargs)
         self.product.update_rating()
 

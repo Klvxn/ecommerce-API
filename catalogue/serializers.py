@@ -21,7 +21,7 @@ class ReviewImageSerializer(serializers.ModelSerializer):
 
 class ProductReviewSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField()
-    reviewimage_set = ReviewImageSerializer(many=True)
+    images = ReviewImageSerializer(many=True)
 
     class Meta:
         model = Review
@@ -84,9 +84,9 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = [
-            "id", 
-            "name", 
-            "category", 
+            "id",
+            "name",
+            "category",
             "store",
             "description",
             "is_active",
@@ -94,11 +94,11 @@ class ProductListSerializer(serializers.ModelSerializer):
             "active_offer",
             "discounted_price",
             "is_standalone",
-            "media", 
-            "created", 
+            "media",
+            "created",
             "updated",
             "total_stock_level",
-            "total_sold"
+            "total_sold",
         ]
 
     def get_base_price(self, obj):
