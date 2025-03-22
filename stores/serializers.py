@@ -25,7 +25,7 @@ class StoreSerializer(WritableNestedModelSerializer):
             "address",
             "followers",
         ]
-        extra_kwargs = {"url": {"lookup_field": "slug"}}
+        extra_kwargs = {"url": {"view_name": "store-detail", "lookup_field": "slug"}}
         read_only_fields = ["is_verified", "is_active", "products_sold", "followers"]
 
     def create(self, validated_data):
@@ -36,10 +36,11 @@ class StoreSerializer(WritableNestedModelSerializer):
         return instance
 
 
-class StoreInstanceSerializer(serializers.HyperlinkedModelSerializer):
+class StoreInstanceSerializer(serializers.ModelSerializer):
     product_set = ProductListSerializer(many=True, required=False)
 
     class Meta:
         model = Store
         fields = StoreSerializer.Meta.fields + ["product_set"]
-        extra_kwargs = {"url": {"lookup_field": "slug"}}
+        extra_kwargs = {"url": {"view_name": "store-detail", "lookup_field": "slug"}}
+
