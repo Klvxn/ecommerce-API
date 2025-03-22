@@ -116,7 +116,7 @@ class CheckoutView(CreateAPIView):
                 description="Error: Not found",
                 examples=[
                     OpenApiExample(
-                        "Not found", value={"detail": "No order matches the given query"}
+                        "Not found", value={"detail": "No Order matches the given query"}
                     )
                 ],
             ),

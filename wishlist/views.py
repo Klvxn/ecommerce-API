@@ -39,9 +39,7 @@ from .serializers import WishlistItemSerializer, WishlistSerializer
         request=WishlistSerializer,
         responses={
             201: WishlistSerializer,
-            400: OpenApiResponse(
-                response=OpenApiTypes.OBJECT, description="Error: Bad request"
-            ),
+            400: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Error: Bad request"),
         },
         tags=["Wishlist"],
     ),
@@ -73,9 +71,7 @@ class WishlistListView(ListCreateAPIView):
                 response=OpenApiTypes.OBJECT,
                 description="Error: Not found",
                 examples=[
-                    OpenApiExample(
-                        "Not found", value={"detail": "No Wishlist matches the given query"}
-                    )
+                    OpenApiExample("Not found", value={"detail": "No Wishlist matches the given query"})
                 ],
             ),
         },
@@ -86,16 +82,12 @@ class WishlistListView(ListCreateAPIView):
         request=WishlistSerializer,
         responses={
             200: WishlistSerializer,
-            400: OpenApiResponse(
-                response=OpenApiTypes.OBJECT, description="Error: Bad request"
-            ),
+            400: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Error: Bad request"),
             404: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description="Error: Not found",
                 examples=[
-                    OpenApiExample(
-                        "Not found", value={"detail": "No Wishlist matches the given query"}
-                    )
+                    OpenApiExample("Not found", value={"detail": "No Wishlist matches the given query"})
                 ],
             ),
         },
@@ -104,16 +96,12 @@ class WishlistListView(ListCreateAPIView):
     delete=extend_schema(
         summary="Delete wishlist",
         responses={
-            204: OpenApiResponse(
-                response=OpenApiTypes.NONE, description="Successful, No content"
-            ),
+            204: OpenApiResponse(response=OpenApiTypes.NONE, description="Successful, No content"),
             404: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description="Error: Not found",
                 examples=[
-                    OpenApiExample(
-                        "Not found", value={"detail": "No Wishlist matches the given query"}
-                    )
+                    OpenApiExample("Not found", value={"detail": "No Wishlist matches the given query"})
                 ],
             ),
         },
@@ -141,9 +129,20 @@ class WishlistInstanceView(RetrieveUpdateDestroyAPIView):
 
 
 @extend_schema_view(
-    retrieve=extend_schema(tags=["Wishlist"]),
-    create=extend_schema(tags=["Wishlist"]),
-    destroy=extend_schema(tags=["Wishlist"])
+    retrieve=extend_schema(
+        summary="Retrieve a wishlist item", responses={200: WishlistItemSerializer}, tags=["Wishlist"]
+    ),
+    create=extend_schema(
+        summary="Create a wishlist item",
+        request=WishlistItemSerializer,
+        responses={201: WishlistItemSerializer},
+        tags=["Wishlist"],
+    ),
+    destroy=extend_schema(
+        summary="Delete a wishlist item",
+        responses={204: OpenApiResponse(response=OpenApiTypes.NONE)},
+        tags=["Wishlist"],
+    ),
 )
 class WishlistItemViewSet(ModelViewSet):
     http_method_names = ["get", "post", "delete"]
@@ -156,9 +155,7 @@ class WishlistItemViewSet(ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        wishlist = get_object_or_404(
-            Wishlist, id=self.kwargs["wishlist_id"], owner=self.request.user
-        )
+        wishlist = get_object_or_404(Wishlist, id=self.kwargs["wishlist_id"], owner=self.request.user)
         serializer.save(wishlist=wishlist)
 
 
@@ -171,9 +168,7 @@ class WishlistItemViewSet(ModelViewSet):
                 response=OpenApiTypes.OBJECT,
                 description="Error: Not found",
                 examples=[
-                    OpenApiExample(
-                        "Not found", value={"detail": "No Wishlist matches the given query"}
-                    )
+                    OpenApiExample("Not found", value={"detail": "No Wishlist matches the given query"})
                 ],
             ),
         },

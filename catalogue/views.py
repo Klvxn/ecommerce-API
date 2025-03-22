@@ -164,7 +164,11 @@ class ProductInstanceView(RetrieveAPIView):
         context["product"] = self.get_object()
         return context
 
-
+@extend_schema(
+    summary="Load attributes for a product",
+    responses={200: OpenApiResponse(response=OpenApiTypes.ANY)},
+    tags=["Catalogue"]
+)
 @api_view(["GET"])
 def load_product_attrs(request, pk):
     product = get_object_or_404(Product, id=pk)
