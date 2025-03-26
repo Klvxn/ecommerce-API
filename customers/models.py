@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from autoslug import AutoSlugField
 from django.contrib.auth.models import AbstractUser
@@ -26,9 +27,21 @@ class Customer(AbstractUser):
     is_vendor = models.BooleanField(default=False)
 
     last_purchase_date = models.DateTimeField(null=True, blank=True)
-    products_bought_count = models.PositiveIntegerField(null=True, default=0, blank=True)
-    total_units_bought = models.PositiveIntegerField(null=True, default=0, blank=True)
-    products_bought = models.ManyToManyField("catalogue.ProductVariant", blank=True)
+    products_bought_count = models.PositiveIntegerField(
+        null=True, default=0, blank=True, help_text="Number of unique products purchased"
+    )
+    total_units_bought = models.PositiveIntegerField(
+        null=True,
+        default=0,
+        blank=True,
+        help_text="Sum of all quantities purchased across all products",
+    )
+    products_bought = models.ManyToManyField(
+        "catalogue.ProductVariant",
+        through="customers.PurchaseRecord",
+        through_fields=("customer", "product_variant"),
+        blank=True,
+    )
     redeemed_vouchers = models.ManyToManyField(
         "discount.Voucher", through="discount.RedeemedVoucher", blank=True
     )
@@ -45,6 +58,21 @@ class Customer(AbstractUser):
     @property
     def is_first_time_buyer(self):
         return not self.products_bought.exists()
+
+    def update_purchases_count(self):
+        self.products_bought_count = self.purchases.count()
+        self.total_units_bought = (
+            self.purchases.aggregate(total=models.Sum("extra__quantity"))["total"] or 0
+        )
+        self.last_purchase_date = datetime.now(timezone.utc)
+        self.save(
+            update_fields=["products_bought_count", "total_units_bought", "last_purchase_date"]
+        )
+
+    def frequently_bought_products(self, min_units=3):
+        return self.products_bought.annotate(
+            total_units=models.Sum("purchases__extra__quantity")
+        ).filter(total_units__gt=min_units)
 
 
 def get_sentinel_user():
@@ -85,4 +113,16 @@ class Address(models.Model):
         verbose_name_plural = "addresses"
 
     def __str__(self):
-        return f"{self.city}, {self.state}, {self.country}"  
+        return f"{self.city}, {self.state}, {self.country}"
+
+
+class PurchaseRecord(models.Model):
+    customer = models.ForeignKey(
+        Customer, on_delete=models.SET(get_sentinel_user), related_name="purchases"
+    )
+    product_variant = models.ForeignKey(
+        "catalogue.ProductVariant", on_delete=models.SET_NULL, null=True
+    )
+    order = models.ForeignKey("orders.Order", on_delete=models.SET_NULL, null=True)
+    extra = models.JSONField(null=True, default=dict)
+    purchased_at = models.DateTimeField(auto_now_add=True)
