@@ -15,9 +15,10 @@ User = get_user_model()
 
 class Order(BaseModel):
     class OrderStatus(models.TextChoices):
-        PAID = "paid"
         AWAITING_PAYMENT = "awaiting_payment"
+        PAID = "paid"
         DELIVERED = "delivered"
+        FAILED = "failed"
         CANCELLED = "cancelled"
 
     id = models.UUIDField(primary_key=True, default=uuid4)
@@ -37,7 +38,6 @@ class Order(BaseModel):
     )
 
     # voucher applied to a cart is transferred to the main customer's order and only one voucher per order/cart
-    # voucher discounts are calculated and applied to the total
     voucher = models.OneToOneField(
         "discount.Voucher",
         on_delete=models.SET_NULL,
@@ -46,10 +46,12 @@ class Order(BaseModel):
         blank=True,
     )
 
-    # discount amount from the applied voucher 
-    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=D("0.0"))
+    # discount amount from the applied voucher/offer valid for the order
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=D("0.00"))
 
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True)
+    total_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=D("0.00"), editable=False
+    )
 
     class Meta:
         ordering = ["-created"]
@@ -78,9 +80,23 @@ class Order(BaseModel):
         self.total_amount = self.subtotal + self.total_shipping - self.discount_amount
         super().save(*args, **kwargs)
 
+    @classmethod
+    @transaction.atomic
+    def create_from_cart(cls, cart, billing_address):
+        instance = cls.objects.create(billing_address=billing_address, customer=cart.customer)
+        
+        if hasattr(cart, "applied_voucher") and cart.applied_voucher:
+            instance.voucher = cart.applied_voucher
+            instance.discount_amount = D(cart.get_total_voucher_discount())
+            instance.save(update_fields=["voucher", "discount_amount"])
+
+        cart_items = cart.cart_items.values()
+        OrderItem.create_from_cart_items(instance, cart_items)
+        return instance
+
     @property
     def savings_on_items(self):
-        return sum([item.discount for item in self.items.all()])
+        return sum([item.discount_amount for item in self.items.all()])
 
     @property
     def overall_savings(self):
@@ -122,12 +138,12 @@ class Order(BaseModel):
     def original_subtotal(self):
         """
         Total value of items at their original prices (before discounts).
-        Calculated as sum (unit_price + discount_amount) * quantity
+        Calculated as sum (unit_price * quantity) * discount_amount
         """
         return (
             self.items.aggregate(
                 total=models.Sum(
-                    (models.F("unit_price") + models.F("discount_amount")) * models.F("quantity"),
+                    (models.F("unit_price") * models.F("quantity")) + models.F("discount_amount"),
                     output_field=models.DecimalField(),
                 ),
             )["total"]
@@ -162,13 +178,13 @@ class OrderItem(BaseModel):
     total_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
 
     def __str__(self):
-        return f"Item {self.id} in Order {self.order}"
+        return f"{self.product.name} in Order {self.order}"
 
     def get_shipping(self):
         return self.shipping
 
     @classmethod
-    def create_from_cart(cls, order, cart):
+    def create_from_cart_items(cls, order, cart_items):
         """
         Creates OrderItems from the items in the user's cart.
 
@@ -180,39 +196,46 @@ class OrderItem(BaseModel):
             int: The number of records that was created
         """
         order_items = []
-        variant_ids = [item["variant_id"] for item in cart.cart_items.values()]
-        variant_map = ProductVariant.objects.in_bulk(variant_ids)
+        variant_ids = [item["variant_id"] for item in cart_items]
+        variant_map = ProductVariant.active_objects.in_bulk(variant_ids)
 
-        if hasattr(cart, "applied_voucher"):
-            order.voucher = cart.applied_voucher
-            order.discount_amount = cart.get_total_voucher_discount()
-            order.save(update_fields=["voucher", "discount_amount"])
+        for item_data in cart_items:
+            variant = variant_map[item_data["variant_id"]]
+            unit_price, original_price = D(item_data["price"]), D(item_data["original_price"])
+            quantity = item_data["quantity"]
+            total_price = D(unit_price * quantity)
+            discount_amount, applied_offer = 0, None
 
-        with transaction.atomic():
-            for item_data in cart.cart_items.values():
-                variant = variant_map[item_data["variant_id"]]
-                unit_price, original_price = item_data["price"], item_data["original_price"]
-                quantity = item_data["quantity"]
-                discount_amount, applied_offer = 0, None
+            if applied_offer_id := item_data.get("active_offer", {}).get("offer_id"):
+                applied_offer = Offer.active_objects.filter(id=applied_offer_id).first()
 
-                if applied_offer_id := item_data.get("active_offer", {}).get("offer_id"):
-                    applied_offer = Offer.active_objects.filter(id=applied_offer_id).first()
+                if applied_offer:
+                    discount_amount = (original_price - unit_price) * quantity
+                    discount_amount = D(discount_amount)
+                    applied_offer = applied_offer
 
-                    if applied_offer and not applied_offer.is_expired:
-                        discount_amount = (original_price - unit_price) * quantity
-                        applied_offer = applied_offer
-
-                order_items.append(
-                    cls(
-                        order=order,
-                        variant=variant,
-                        product=variant.product,
-                        unit_price=unit_price,
-                        quantity=quantity,
-                        total_price=unit_price * quantity,
-                        discount_amount=discount_amount,
-                        shipping=item_data["shipping"],
-                        offer=applied_offer
-                    )
+            order_items.append(
+                cls(
+                    order=order,
+                    variant=variant,
+                    product=variant.product,
+                    unit_price=unit_price,
+                    quantity=quantity,
+                    total_price=total_price,
+                    discount_amount=discount_amount,
+                    shipping=item_data["shipping"],
+                    offer=applied_offer,
                 )
-            return cls.objects.bulk_create(order_items)
+            )
+        return cls.objects.bulk_create(order_items)
+
+
+class OrderStatusLog(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="status_changes")
+    old_status = models.CharField(max_length=20)
+    new_status = models.CharField(max_length=20)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        verbose_name = "status log"

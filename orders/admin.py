@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Order, OrderItem
+from .models import Order, OrderItem, OrderStatusLog
 
 
 # Register your models here.
@@ -28,3 +28,6 @@ class OrderAdmin(admin.ModelAdmin):
     list_filter = ["status", "created", "updated"]
     readonly_fields = ["id", "customer"]
     list_per_page = 10
+
+
+admin.site.register(OrderStatusLog)
