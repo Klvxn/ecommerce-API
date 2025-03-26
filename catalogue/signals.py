@@ -1,7 +1,8 @@
+from django.db.models import Avg
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from catalogue.models import Product, ProductVariant
+from catalogue.models import Product, ProductVariant, Review
 
 
 @receiver(post_save, sender=Product)
@@ -29,3 +30,22 @@ def create_default_variant(sender, instance, created, **kwargs):
 
         else:
             ProductVariant.objects.filter(product=instance, is_default=True).delete()
+
+
+@receiver(post_save, sender=ProductVariant)
+def update_variant_product_stock(sender, instance, created, **kwargs):
+    """Update product stock status when a variant is saved."""
+    instance.product.update_stock_status()
+
+
+@receiver(post_save, sender=Review)
+def update_product_rating(sender, instance, **kwargs):
+    """Update product rating when a review is saved."""
+    product = instance.product
+    reviews = Review.objects.all()
+    if reviews.exists():
+        average_rating = reviews.aggregate(Avg("rating"))["rating__avg"]
+        product.rating = average_rating
+    else:
+        product.rating = 0
+    product.save(update_fields=["rating"])

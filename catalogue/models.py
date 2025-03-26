@@ -47,40 +47,39 @@ class Product(BaseModel):
     specs = models.JSONField(null=True, blank=True)
     is_standalone = models.BooleanField(
         default=True,
-        help_text="Does/Will this product have variants that inherits its properties?",
+        help_text=(
+            "If True, this product can be sold directly. Else, it acts as a template and only its variants can be sold"
+        ),
     )
 
     # Stock status fields
     total_stock_level = models.PositiveIntegerField()
     total_sold = models.PositiveIntegerField(default=0)
-    is_available = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ["-total_sold", "-rating"]
-        indexes = [models.Index(fields=["category", "is_available"])]
+        ordering = ["-created", "-total_sold", "-rating"]
+        indexes = [models.Index(fields=["category", "is_active"])]
 
     def __str__(self):
         return self.name
 
     @property
     def has_variants(self):
-        return not self.is_standalone and self.variants.exists()
+        return self.variants.exists()
+
+    @property
+    def is_low_stock(self):
+        return self.total_stock_level < 10
 
     def update_stock_status(self):
-        variants = self.variants.all()
-        self.total_stock_level = sum(variant.stock_level for variant in variants)
-        self.total_sold = sum(variant.quantity_sold for variant in variants)
-        self.is_available = self.total_stock_level > 0
-        self.save(update_fields=["total_stock_level", "total_sold", "is_available"])
-
-    def update_rating(self):
-        self.rating = self.calculate_rating()
-        self.save(update_fields=["rating"])
-
-    def calculate_rating(self):
-        results = self.reviews.aggregate(sum=models.Sum("rating"), count=models.Count("id"))
-        rating_sum, reviews_count = results.values()
-        return rating_sum / reviews_count if reviews_count else None
+        # Use aggregation for efficiency
+        results = self.variants.aggregate(
+            total_stock=models.Sum("stock_level"), total_sold=models.Sum("quantity_sold")
+        )
+        self.total_stock_level = results["total_stock"] or 0
+        self.total_sold = results["total_sold"] or 0
+        self.is_active = self.total_stock_level > 0
+        self.save(update_fields=["total_stock_level", "total_sold", "is_active"])
 
     def get_active_offers(self):
         """
@@ -126,51 +125,60 @@ class Product(BaseModel):
 
 class Attribute(models.Model):
     name = models.CharField(max_length=255, unique=True)
+    is_global = models.BooleanField(default=False)
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, null=True, blank=True, related_name="attributes"
+    )
 
     def __str__(self):
         return self.name
 
-
-class ProductAttribute(models.Model):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="attributes")
-    attribute = models.ForeignKey(Attribute, on_delete=models.SET_NULL, null=True, blank=True)
-    name = models.CharField(max_length=255, null=True, blank=True)  # for product-specific attributes
-
-    def __str__(self):
-        return self.name
-
-    class Meta:
-        verbose_name = "product attribute"
-        unique_together = ("product", "name")
+    def clean(self):
+        super().clean()
+        if not self.is_global and not self.product:
+            raise ValidationError("Product-specific attribute must be assigned to a product")
+        if self.is_global and self.product:
+            self.product = None  # Global attributes can't belong to a product
 
 
 class ProductVariant(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
     sku = models.CharField("SKU", max_length=20, unique=True, db_index=True)
-    is_default = models.BooleanField(default=False)
+    is_default = models.BooleanField(
+        default=False, help_text="Automatically created variant for standalone products"
+    )
     price_adjustment = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=D("0.0"),
-        help_text="Amount to add to the product's base price",
+        help_text="Additional amount to the product's base price",
     )
     stock_level = models.PositiveIntegerField()
+    attributes = models.ManyToManyField(Attribute, through="catalogue.VariantAttribute")
     quantity_sold = models.PositiveIntegerField(default=0)
     image = models.ImageField(upload_to="media/variants", null=True, blank=True)
 
     class Meta:
         ordering = ("-quantity_sold",)
-        unique_together = ("sku", "product")
         indexes = [models.Index(fields=("product", "is_active"))]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product"],
+                condition=models.Q(is_default=True),
+                name="unique_default_variant",
+            ),
+            models.UniqueConstraint(
+                fields=["product", "sku"], name="unique_variant_sku_per_product"
+            ),
+        ]
 
     def __str__(self):
-        attributes = self.attributes.all()
-        variant_desc = (
-            " - ".join(f"{attr.attribute.name}: {attr.value}" for attr in attributes)
+        attributes = self.variantattribute_set.all()
+        return (
+            ", ".join(f"{attr.attribute}: {attr.value}" for attr in attributes)
             if attributes
             else "Default"
         )
-        return f"{self.product.name} ({variant_desc})"
 
     @property
     def actual_price(self):
@@ -190,44 +198,70 @@ class ProductVariant(BaseModel):
     def clean(self):
         super().clean()
         if hasattr(self, "product") and self.product is not None:
-            if self.product.is_standalone and not self.is_default:
-                raise ValidationError("Standalone products can only have a single default variant")
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        self.product.update_stock_status()
+            if self.product.is_standalone and self.product.has_variants:
+                raise ValidationError(
+                    "Standalone products can only have a single default variant"
+                )
 
 
 class VariantAttribute(models.Model):
-    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name="attributes")
-    attribute = models.ForeignKey(ProductAttribute, on_delete=models.CASCADE)
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE)
+    attribute = models.ForeignKey(Attribute, on_delete=models.CASCADE)
     value = models.CharField(max_length=255)
-
-    def __str__(self):
-        return f"Variant attribute for {self.variant}"
 
     class Meta:
         unique_together = ("variant", "attribute")
+
+    def __str__(self):
+        return f"{self.attribute}: {self.value}"
+
+    def clean(self):
+        if not self.attribute.is_global and self.variant.product != self.attribute.product:
+            raise ValidationError(
+                f"Attribute {self.attribute.name} is specific to {self.attribute.product.name}"
+            )
+
+        existing = (
+            self._meta.model.objects.filter(
+                variant__product=self.variant.product,
+                attribute=self.attribute,
+                value=self.value,
+            )
+            .exclude(pk=self.id)
+            .exists()
+        )
+        if existing:
+            raise ValidationError("This attribute combination already exists")
+
+
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
+
+ALLOWED_VIDEO_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
 
 
 class ProductMedia(BaseModel):
     """
     Handles media files (images/videos) for products with validation
     """
-    ALLOWED_IMAGE_TYPES = {
-        "image/jpeg": ".jpg",
-        "image/png": ".png",
-        "image/webp": ".webp",
-    }
-
-    ALLOWED_VIDEO_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="media")
     file = models.FileField(upload_to="products/%Y/%m/")
-    is_primary = models.BooleanField(default=False, help_text="Set as primary media for product")
+    alt_text = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Alternative text for media (for accessibility)",
+    )
+    is_primary = models.BooleanField(
+        default=False, help_text="Set as primary media for product"
+    )
 
     class Meta:
         verbose_name_plural = "product media"
+        ordering = ["-is_primary", "created"]
 
     def __str__(self):
         return f"{self.product.name} - {'Primary' if self.is_primary else 'Secondary'}"
@@ -243,16 +277,16 @@ class ProductMedia(BaseModel):
         self.file.seek(0)
 
         # Validate file type
-        if file_type in self.ALLOWED_IMAGE_TYPES:
+        if file_type in ALLOWED_IMAGE_TYPES:
             self.type = "image"
-            allowed_extensions = self.ALLOWED_IMAGE_TYPES
-        elif file_type in self.ALLOWED_VIDEO_TYPES:
+            allowed_extensions = ALLOWED_IMAGE_TYPES
+        elif file_type in ALLOWED_VIDEO_TYPES:
             self.type = "video"
-            allowed_extensions = self.ALLOWED_VIDEO_TYPES
+            allowed_extensions = ALLOWED_VIDEO_TYPES
         else:
             raise ValidationError(
                 f"Unsupported file type. Allowed types are: "
-                f"{list(self.ALLOWED_IMAGE_TYPES.values()) + list(self.ALLOWED_VIDEO_TYPES.values())}"
+                f"{list(ALLOWED_IMAGE_TYPES.values()) + list(ALLOWED_VIDEO_TYPES.values())}"
             )
 
         # Validate file extension matches mime type
@@ -266,18 +300,20 @@ class ProductMedia(BaseModel):
     def save(self, *args, **kwargs):
         # If this is being set as primary, unset any existing primary
         if self.is_primary:
-            ProductMedia.objects.filter(product=self.product, is_primary=True).update(is_primary=False)
+            ProductMedia.objects.filter(product=self.product, is_primary=True).update(
+                is_primary=False
+            )
 
         self.full_clean()
         super().save(*args, **kwargs)
 
     @property
     def is_image(self):
-        return os.path.splitext(self.file.name)[1].lower() in self.ALLOWED_IMAGE_TYPES.values()
+        return os.path.splitext(self.file.name)[1].lower() in ALLOWED_IMAGE_TYPES.values()
 
     @property
     def is_video(self):
-        return os.path.splitext(self.file.name)[1].lower() in self.ALLOWED_VIDEO_TYPES.values()
+        return os.path.splitext(self.file.name)[1].lower() in ALLOWED_VIDEO_TYPES.values()
 
     def get_file_size(self):
         return round(self.file.size / (1024 * 1024), 2)
@@ -303,6 +339,7 @@ class Review(BaseModel):
     rating = models.IntegerField(choices=Ratings.choices)
     sentiment = models.CharField(max_length=50, null=True, choices=SENTIMENT_TYPES, blank=True)
     sentiment_score = models.FloatField(null=True, blank=True)
+    is_helpful = models.BooleanField(default=False, null=True, blank=True)
 
     class Meta:
         get_latest_by = "created"
@@ -310,13 +347,65 @@ class Review(BaseModel):
     def save(self, *args, **kwargs):
         self.sentiment_score, self.sentiment = analyze(self.review_text)
         super().save(*args, **kwargs)
-        self.product.update_rating()
 
     def __str__(self):
         return f"Review by {self.user}"
 
 
 class ReviewImage(models.Model):
-    review = models.ForeignKey(Review, on_delete=models.DO_NOTHING, related_name="images")
+    review = models.ForeignKey(Review, on_delete=models.CASCADE, related_name="images")
     image = models.ImageField(upload_to="reviews/")
-    is_primary = models.BooleanField(default=False)
+    alt_text = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Alternative text for image (for accessibility)",
+    )
+    is_primary = models.BooleanField(
+        default=False, help_text="Set as the main image for this review"
+    )
+
+    class Meta:
+        ordering = ["-is_primary", "id"]
+
+    def __str__(self):
+        return f"Image for review {self.review.id} - {'Primary' if self.is_primary else 'Secondary'}"
+
+    def clean(self):
+        if not self.image:
+            return
+
+        try:
+            file_type = magic.from_buffer(self.image.read(2048), mime=True)  # Read first 2KB
+        except Exception as e:
+            raise ValidationError(f"Could not determine file type: {e}")
+        finally:
+            self.image.seek(0)
+
+        if file_type not in ALLOWED_IMAGE_TYPES:
+            raise ValidationError(
+                f"Unsupported image type. Allowed types are: {list(ALLOWED_IMAGE_TYPES.values())}"
+            )
+
+        # Validate file extension matches mime type
+        file_extension = os.path.splitext(self.image.name)[1].lower()
+        if file_extension != ALLOWED_IMAGE_TYPES[file_type]:
+            raise ValidationError(
+                f"File extension '{file_extension}' does not match its content type '{file_type}'. "
+                f"Expected {ALLOWED_IMAGE_TYPES[file_type]}."
+            )
+
+    def save(self, *args, **kwargs):
+        # If this is being set as primary, unset any existing primary for this review
+        if self.is_primary:
+            self.__class__.objects.filter(review=self.review, is_primary=True).exclude(
+                pk=self.pk
+            ).update(is_primary=False)
+
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def get_file_size(self):
+        try:
+            return round(self.image.size / (1024 * 1024), 2)  # Size in MB
+        except OSError:
+            return 0  # Handle cases where file might not exist

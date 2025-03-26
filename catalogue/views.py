@@ -19,7 +19,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Category, Product, Review
+from .models import Attribute, Category, Product, Review
 from .serializers import (
     CategoryInstanceSerializer,
     CategoryListSerializer,
@@ -99,8 +99,8 @@ class ProductListView(GenericAPIView, LimitOffsetPagination):
 
     permission_classes = [AllowAny]
     serializer_class = ProductListSerializer
-    filterset_fields = ["category", "is_available", "store"]
-    search_fields = ["name", "category__name", "label", "store__brand_name"]
+    filterset_fields = ["category", "is_active", "store"]
+    search_fields = ["name", "category__name", "label", "store__name"]
 
     def get_queryset(self):
         queryset = Product.objects.all()
@@ -164,6 +164,7 @@ class ProductInstanceView(RetrieveAPIView):
         context["product"] = self.get_object()
         return context
 
+
 @extend_schema(
     summary="Load attributes for a product",
     responses={200: OpenApiResponse(response=OpenApiTypes.ANY)},
@@ -172,8 +173,9 @@ class ProductInstanceView(RetrieveAPIView):
 @api_view(["GET"])
 def load_product_attrs(request, pk):
     product = get_object_or_404(Product, id=pk)
-    attrs = product.attributes.values("id", "name")
-    resp = [{"id": attr["id"], "name": attr["name"]} for attr in attrs]
+    q1 = Attribute.objects.filter(is_global=True, product__isnull=True)
+    attrs = q1.union(Attribute.objects.filter(product=product))
+    resp = [{"id": attr.id, "name": attr.name} for attr in attrs]
     return Response(resp)
 
 

@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import serializers
 
 from discount.serializers import OfferSerializer
@@ -54,23 +55,6 @@ class ProductMediaSerializer(serializers.ModelSerializer):
         return value
 
 
-class VariantAttributeSerializer(serializers.ModelSerializer):
-    attribute = serializers.StringRelatedField()
-
-    class Meta:
-        model = VariantAttribute
-        exclude = ["variant", "id"]
-
-
-class ProductVariantSerializer(serializers.ModelSerializer):
-    # allow_null: for standalone products with no attributes
-    attributes = VariantAttributeSerializer(many=True, allow_null=True)
-
-    class Meta:
-        model = ProductVariant
-        exclude = ["product"]
-
-
 class ProductListSerializer(serializers.ModelSerializer):
     category = serializers.StringRelatedField()
     store = serializers.HyperlinkedRelatedField(
@@ -91,9 +75,10 @@ class ProductListSerializer(serializers.ModelSerializer):
             "description",
             "is_active",
             "base_price",
-            "active_offer",
             "discounted_price",
+            "active_offer",
             "is_standalone",
+            "is_low_stock",
             "media",
             "created",
             "updated",
@@ -132,6 +117,24 @@ class ProductListSerializer(serializers.ModelSerializer):
         return data
 
 
+class VariantAttributeSerializer(serializers.ModelSerializer):
+    attribute = serializers.StringRelatedField()
+
+    class Meta:
+        model = VariantAttribute
+        exclude = ["variant", "id"]
+
+
+class ProductVariantSerializer(serializers.ModelSerializer):
+    attribute_combination = VariantAttributeSerializer(
+        many=True, read_only=True, source="variantattribute_set"
+    )
+
+    class Meta:
+        model = ProductVariant
+        exclude = ["product", "attributes"]
+
+
 class ProductInstanceSerializer(ProductListSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -140,10 +143,20 @@ class ProductInstanceSerializer(ProductListSerializer):
 
     reviews = ProductReviewSerializer(many=True)
     variants = ProductVariantSerializer(many=True)
+    similar_products = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
-        fields = "__all__"
+        fields = ProductListSerializer.Meta.fields + ["variants", "reviews", "similar_products"]
+
+    def get_similar_products(self, obj):
+        return (
+            Product.active_objects.filter(
+                Q(name__icontains=obj.name) | Q(category__name__icontains=obj.category)
+            )
+            .exclude(id=obj.id)
+            .distinct()
+        )
 
 
 class SimpleProductSerializer(serializers.ModelSerializer):
